@@ -1,0 +1,30 @@
+{
+  "name": "GalacticJailbreak Dev",
+  "image": "mcr.microsoft.com/devcontainers/swift:1-jammy",
+
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "sswg.swift-lang",
+        "GitHub.vscode-pull-request-github",
+        "eamodio.gitlens",
+        "ms-azuretools.vscode-docker",
+        "christian-kohler.path-intellisense"
+      ],
+      "settings": {
+        "editor.formatOnSave": true,
+        "editor.tabSize": 4,
+        "swift.path": "/usr/bin/swift",
+        "files.trimTrailingWhitespace": true
+      }
+    }
+  },
+
+  "postCreateCommand": "swift --version && echo '\n✦ GalacticJailbreak dev environment active.\n  Edit Swift source here.\n  Push to main → GitHub Actions (macos-14) builds the IPA.\n  Tag a release (git tag v1.0.0 && git push --tags) to publish.\n'",
+
+  "remoteUser": "vscode"
+}
