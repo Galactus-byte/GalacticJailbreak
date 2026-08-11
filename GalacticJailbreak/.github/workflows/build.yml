@@ -4,101 +4,47 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
-env:
-  SCHEME:        GalacticJailbreak
-  PROJECT:       GalacticJailbreak.xcodeproj
-  CONFIGURATION: Release
-  ARCHIVE:       ${{ github.workspace }}/build/GalacticJailbreak.xcarchive
-  IPA_DIR:       ${{ github.workspace }}/build/ipa
-
 jobs:
-  # ── Build ────────────────────────────────────────────────────────────────────
   build:
-    name: Build IPA (macOS / Xcode 15)
-    runs-on: macos-14          # Apple Silicon runner; ships with Xcode 15.x
-
+    runs-on: macos-14
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Select Xcode 15
         run: sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
 
-      - name: Environment info
-        run: |
-          xcodebuild -version
-          swift --version
-          uname -m
+      - name: Install xcodegen
+        run: brew install xcodegen
 
-      - name: Cache derived data
-        uses: actions/cache@v4
-        with:
-          path: ~/Library/Developer/Xcode/DerivedData
-          key: ${{ runner.os }}-dd-${{ hashFiles('**/*.xcodeproj/project.pbxproj') }}
-          restore-keys: ${{ runner.os }}-dd-
+      - name: Generate .xcodeproj
+        run: xcodegen generate
 
-      - name: Resolve SPM dependencies
-        run: |
-          xcodebuild -resolvePackageDependencies \
-            -project "$PROJECT"     \
-            -scheme  "$SCHEME"
-
-      - name: Archive (unsigned)
+      - name: Archive
         run: |
           mkdir -p build
-          xcodebuild archive                         \
-            -project "$PROJECT"                      \
-            -scheme  "$SCHEME"                       \
-            -configuration "$CONFIGURATION"          \
-            -destination "generic/platform=iOS"      \
-            -archivePath "$ARCHIVE"                  \
-            CODE_SIGN_IDENTITY=""                    \
-            CODE_SIGNING_REQUIRED=NO                 \
-            CODE_SIGNING_ALLOWED=NO                  \
-            ENABLE_BITCODE=NO                        \
-            | xcpretty --color
+          xcodebuild archive \
+            -project GalacticJailbreak.xcodeproj \
+            -scheme GalacticJailbreak \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath build/GalacticJailbreak.xcarchive \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            ENABLE_BITCODE=NO
 
-      - name: Package IPA
+      - name: Export IPA
         run: |
-          mkdir -p "$IPA_DIR"
-          xcodebuild -exportArchive                  \
-            -archivePath  "$ARCHIVE"                 \
-            -exportPath   "$IPA_DIR"                 \
+          xcodebuild -exportArchive \
+            -archivePath build/GalacticJailbreak.xcarchive \
+            -exportPath build/ipa \
             -exportOptionsPlist ExportOptions.plist
 
-      - name: Verify IPA exists
-        run: ls -lh "$IPA_DIR"/*.ipa
-
-      - name: Upload artifact
+      - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
           name: GalacticJailbreak-${{ github.sha }}
-          path: ${{ env.IPA_DIR }}/*.ipa
+          path: build/ipa/*.ipa
           retention-days: 30
-
-  # ── Release (tag push only) ──────────────────────────────────────────────────
-  release:
-    name: Publish GitHub Release
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Download IPA artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: GalacticJailbreak-${{ github.sha }}
-          path: ./dist
-
-      - name: Create release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: ./dist/*.ipa
-          generate_release_notes: true
-          draft: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
