@@ -1,3 +1,27 @@
+<p align="center">
+  <img src="https://capsule-render.vercel.app/api?type=waving&color=gradient&customColorList=6,11,20&height=200&section=header&text=GalacticJailbreak&fontSize=50&fontColor=ffffff&animation=twinkling&fontAlignY=35&desc=iOS%20Jailbreak%20Frontend%20%E2%80%94%20SwiftUI%20%C2%B7%20palera1n%20%C2%B7%20Dopamine&descAlignY=55&descSize=16" />
+</p>
+
+<p align="center">
+  <a href="https://github.com/Galactus-byte/GalacticJailbreak/actions/workflows/build.yml">
+    <img src="https://github.com/Galactus-byte/GalacticJailbreak/actions/workflows/build.yml/badge.svg" alt="Build" />
+  </a>
+  <a href="https://github.com/Galactus-byte/GalacticJailbreak/releases/latest">
+    <img src="https://img.shields.io/github/v/release/Galactus-byte/GalacticJailbreak?color=cyan&label=latest&style=flat-square" alt="Release" />
+  </a>
+  <img src="https://img.shields.io/badge/iOS-15.0--16.7-purple?style=flat-square&logo=apple" alt="iOS" />
+  <img src="https://img.shields.io/badge/Swift-5.9-orange?style=flat-square&logo=swift" alt="Swift" />
+  <img src="https://img.shields.io/badge/Xcode-16-blue?style=flat-square&logo=xcode" alt="Xcode" />
+  <a href="https://github.com/Galactus-byte/GalacticJailbreak/stargazers">
+    <img src="https://img.shields.io/github/stars/Galactus-byte/GalacticJailbreak?color=yellow&style=flat-square" alt="Stars" />
+  </a>
+  <a href="https://github.com/Galactus-byte/GalacticJailbreak/forks">
+    <img src="https://img.shields.io/github/forks/Galactus-byte/GalacticJailbreak?color=green&style=flat-square" alt="Forks" />
+  </a>
+</p>
+
+---
+
 # ✦ GalacticJailbreak
 
 > iOS jailbreak frontend · SwiftUI · Galactic UI · palera1n + Dopamine
