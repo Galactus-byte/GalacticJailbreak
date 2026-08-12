@@ -1,4 +1,5 @@
 import SwiftUI
+import Darwin
 
 struct JailbreakView: View {
 
@@ -65,11 +66,17 @@ struct JailbreakView: View {
         engine.run(packageManager: packageManager)
     }
 
+    // Process() is macOS-only. On iOS jailbroken devices use posix_spawn
+    // to call sbreload from the rootless bootstrap at /var/jb.
     private func respring() {
-        // Invokes sbreload from the rootless bootstrap at /var/jb
-        let p = Process()
-        p.launchPath = "/var/jb/usr/bin/sbreload"
-        try? p.run()
+        let path = "/var/jb/usr/bin/sbreload"
+        var pid: pid_t = 0
+        let args: [UnsafeMutablePointer<CChar>?] = [
+            strdup(path),
+            nil
+        ]
+        posix_spawn(&pid, path, nil, nil, args, nil)
+        args.forEach { free($0) }
     }
 }
 
@@ -85,17 +92,14 @@ struct ProgressRing: View {
 
     var body: some View {
         ZStack {
-            // Outer decorative orbit
             Circle()
                 .strokeBorder(Color.white.opacity(0.04), lineWidth: 1)
                 .frame(width: 168, height: 168)
 
-            // Track
             Circle()
                 .strokeBorder(Color.white.opacity(0.07), lineWidth: 10)
                 .frame(width: 134, height: 134)
 
-            // Fill arc
             Circle()
                 .trim(from: 0, to: CGFloat(progress))
                 .stroke(
@@ -110,7 +114,6 @@ struct ProgressRing: View {
                 .animation(.easeInOut(duration: 0.5), value: progress)
                 .shadow(color: .cyan.opacity(0.55), radius: 8)
 
-            // Spinning accent ring (active states only)
             if status.isActive {
                 Circle()
                     .trim(from: 0.82, to: 1.0)
@@ -125,7 +128,6 @@ struct ProgressRing: View {
                     }
             }
 
-            // Center
             centerContent
         }
     }
@@ -176,10 +178,8 @@ struct LogConsole: View {
                             Text(Self.timeFmt.string(from: e.timestamp))
                                 .frame(width: 56, alignment: .leading)
                                 .foregroundColor(.white.opacity(0.25))
-
                             Text(">")
                                 .foregroundColor(levelColor(e.level).opacity(0.6))
-
                             Text(e.message)
                                 .foregroundColor(levelColor(e.level))
                                 .fixedSize(horizontal: false, vertical: true)
@@ -224,20 +224,15 @@ struct MethodBadgeView: View {
     var body: some View {
         HStack(spacing: 8) {
             Circle().fill(method.badge).frame(width: 6, height: 6)
-
             Text(method.rawValue.uppercased())
                 .font(.system(size: 9, weight: .black, design: .monospaced))
                 .foregroundColor(method.badge)
                 .kerning(2)
-
-            separator
-
+            dot
             Text(method.exploitLabel)
                 .font(.system(size: 9, design: .monospaced))
                 .foregroundColor(.white.opacity(0.45))
-
-            separator
-
+            dot
             Text("iOS \(DeviceInfo.iOSVersion)")
                 .font(.system(size: 9, design: .monospaced))
                 .foregroundColor(.white.opacity(0.45))
@@ -251,8 +246,7 @@ struct MethodBadgeView: View {
         )
     }
 
-    private var separator: some View {
-        Text("·").foregroundColor(.white.opacity(0.2))
-            .font(.system(size: 9))
+    private var dot: some View {
+        Text("·").foregroundColor(.white.opacity(0.2)).font(.system(size: 9))
     }
 }
