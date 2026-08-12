@@ -1,3 +1,14 @@
+name: GalacticJailbreak
+options:
+  bundleIdPrefix: io.galactic
+  deploymentTarget:
+    iOS: "15.0"
+settings:
+  SWIFT_VERSION: "5.9"
+  ENABLE_BITCODE: NO
+  CODE_SIGN_IDENTITY: ""
+  CODE_SIGNING_REQUIRED: NO
+  CODE_SIGNING_ALLOWED: NO
 targets:
   GalacticJailbreak:
     type: application
@@ -16,4 +27,4 @@ targets:
       CODE_SIGNING_REQUIRED: NO
       CODE_SIGNING_ALLOWED: NO
       ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-SWIFT_OBJC_BRIDGING_HEADER: Sources/GalacticJailbreak-Bridging-Header.h
+      SWIFT_OBJC_BRIDGING_HEADER: Sources/GalacticJailbreak-Bridging-Header.h
