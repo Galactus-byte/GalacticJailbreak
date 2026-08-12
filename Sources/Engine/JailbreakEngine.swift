@@ -44,78 +44,100 @@ final class JailbreakEngine: ObservableObject {
         emit("[\(method.rawValue)] starting — \(method.exploitLabel)", .info)
         emit("Target: \(DeviceInfo.modelIdentifier) · iOS \(DeviceInfo.iOSVersion) · \(DeviceInfo.chip.display)", .info)
 
-        // Stage 1 — Prepare environment
-        await stage(.preparing, target: 0.08, label: "Preparing environment") { [self] in
-            let env = DOEnvironmentManager.shared()
-            guard env?.prepare() == true else {
-                throw JBError.stageFailed("Environment preparation failed")
+        // Stage 1 — Check environment support via DOEnvironmentManager
+        await stage(.preparing, target: 0.08, label: "Checking environment") { [self] in
+            let env = DOEnvironmentManager.sharedManager()
+            guard env.isSupported() else {
+                throw JBError.stageFailed("Device not supported by Dopamine")
             }
-            self.emit("Environment prepared", .success)
+            if env.isJailbroken() {
+                self.emit("Previously jailbroken — re-jailbreaking", .warning)
+            }
+            self.emit("Environment check passed", .success)
         }
 
-        // Stage 2 — Trigger kernel exploit
-        await stage(.exploiting, target: 0.30, label: "Triggering \(method.exploitLabel)") { [self] in
-            var error: NSError?
-            let exploitManager = DOExploitManager.shared()
-            let success = exploitManager?.runExploit(&error) ?? false
-            if !success {
-                throw error ?? JBError.stageFailed("Exploit failed — try again")
+        // Stage 2 — Run exploit + escalate privileges via DOJailbreaker
+        await stage(.exploiting, target: 0.40, label: "Running \(method.exploitLabel) exploit") { [self] in
+            let jailbreaker = DOJailbreaker()
+            var errOut: NSError? = nil
+            var didRemove: ObjCBool = false
+            var showLogs: ObjCBool = false
+
+            jailbreaker.run(
+                withError: &errOut,
+                didRemoveJailbreak: &didRemove,
+                showLogs: &showLogs
+            )
+
+            if let error = errOut {
+                throw error
             }
+
+            if didRemove.boolValue {
+                self.emit("Previous jailbreak removed — rerun to jailbreak", .warning)
+                throw JBError.stageFailed("Removed previous jailbreak — tap Retry to jailbreak fresh")
+            }
+
             self.emit("Kernel read/write primitive established", .success)
-        }
-
-        // Stage 3 — Escalate privileges
-        await stage(.exploiting, target: 0.48, label: "Escalating privileges") { [self] in
-            var error: NSError?
-            let jailbreaker = DOJailbreaker.shared()
-            let success = jailbreaker?.escalatePrivileges(&error) ?? false
-            if !success {
-                throw error ?? JBError.stageFailed("Privilege escalation failed")
-            }
             self.emit("Credential replacement complete", .success)
             self.emit("TrustCache bypass applied", .success)
-            self.emit("Platform policy suspended", .success)
         }
 
-        // Stage 4 — Bootstrap /var/jb
-        await stage(.bootstrapping, target: 0.65, label: "Installing rootless bootstrap → /var/jb") { [self] in
-            var error: NSError?
-            let bootstrapper = DOBootstrapper.shared()
-            let success = bootstrapper?.bootstrap(&error) ?? false
-            if !success {
-                throw error ?? JBError.stageFailed("Bootstrap installation failed")
+        // Stage 3 — Prepare and download bootstrap via DOBootstrapper
+        await stage(.bootstrapping, target: 0.65, label: "Preparing bootstrap → /var/jb") { [self] in
+            let bootstrapper = DOBootstrapper()
+
+            // prepareBootstrapWithCompletion is async callback — wrap in continuation
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                bootstrapper.prepareBootstrap { error in
+                    if let error = error {
+                        continuation.resume(throwing: error)
+                    } else {
+                        continuation.resume()
+                    }
+                }
             }
-            self.emit("Bootstrap extracted to /var/jb", .success)
-            self.emit("dyld injection layer configured", .success)
-            self.emit("TweakLoader installed", .success)
+
+            self.emit("Bootstrap downloaded and extracted to /var/jb", .success)
+
+            // Ensure /var/jb symlink is correct
+            if let symlinkError = bootstrapper.updateVarJbSymlink() {
+                throw symlinkError
+            }
+            self.emit("Symlink /var/jb configured", .success)
         }
 
-        // Stage 5 — Install package manager
+        // Stage 4 — Install package manager via DOBootstrapper
         status = .installing(pm)
         await stage(.installing(pm), target: 0.83, label: "Installing \(pm.rawValue)") { [self] in
-            var error: NSError?
-            let jailbreaker = DOJailbreaker.shared()
+            let bootstrapper = DOBootstrapper()
 
-            // Save preferred package manager via DOPreferenceManager
-            DOPreferenceManager.shared()?.setPreferredPackageManager(pm.bundleID)
+            // DOPreferenceManager stores the preferred PM bundle ID
+            // Dopamine's installPackageManagers reads this preference
+            DOPreferenceManager.sharedManager()?.setPreferredPackageManagerBundleID(pm.bundleID)
 
-            let success = jailbreaker?.installPackageManager(pm.bundleID, error: &error) ?? false
-            if !success {
-                throw error ?? JBError.stageFailed("\(pm.rawValue) installation failed")
+            if let pmError = bootstrapper.installPackageManagers() {
+                throw pmError
             }
-            self.emit("\(pm.rawValue) installed → /var/jb/Applications/\(pm.rawValue).app", .success)
+            self.emit("\(pm.rawValue) installed → /var/jb/Applications/", .success)
         }
 
-        // Stage 6 — Activate jailbreak environment
-        await stage(.finalizing, target: 0.97, label: "Activating jailbreak environment") { [self] in
-            var error: NSError?
-            let jailbreaker = DOJailbreaker.shared()
-            let success = jailbreaker?.finalizeJailbreak(&error) ?? false
-            if !success {
-                throw error ?? JBError.stageFailed("Finalization failed")
+        // Stage 5 — Finalize bootstrap and activate environment
+        await stage(.finalizing, target: 0.97, label: "Finalizing jailbreak environment") { [self] in
+            let bootstrapper = DOBootstrapper()
+            if let finalizeError = bootstrapper.finalizeBootstrap() {
+                throw finalizeError
             }
+            self.emit("Bootstrap finalized", .success)
+
+            // Mark device as jailbroken in DOEnvironmentManager
+            DOEnvironmentManager.sharedManager().setJailbroken(true)
+            self.emit("Environment marked as jailbroken", .success)
+
+            // Finalize via DOJailbreaker
+            let jailbreaker = DOJailbreaker()
+            jailbreaker.finalize()
             self.emit("SpringBoard injection active", .success)
-            self.emit("Jailbreak environment live", .success)
         }
 
         progress = 1.0
@@ -173,11 +195,11 @@ final class JailbreakEngine: ObservableObject {
         var label: String {
             switch self {
             case .idle:              return "Ready"
-            case .preparing:         return "Preparing..."
+            case .preparing:         return "Checking environment..."
             case .exploiting:        return "Exploiting kernel..."
             case .bootstrapping:     return "Bootstrapping /var/jb..."
             case .installing(let p): return "Installing \(p.rawValue)..."
-            case .finalizing:        return "Activating environment..."
+            case .finalizing:        return "Finalizing environment..."
             case .complete:          return "Complete"
             case .failed(let r):     return "Failed: \(r)"
             }
