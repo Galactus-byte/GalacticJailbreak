@@ -10,6 +10,8 @@ final class JailbreakEngine: ObservableObject {
 
     private var activeTask: Task<Void, Never>?
 
+    // MARK: - Public Interface
+
     func run(packageManager: PackageManager) {
         activeTask?.cancel()
         activeTask = Task { await self.execute(pm: packageManager) }
@@ -22,37 +24,42 @@ final class JailbreakEngine: ObservableObject {
         log.removeAll()
     }
 
+    // MARK: - Execution Router
+
     private func execute(pm: PackageManager) async {
         let method = DeviceInfo.jailbreakMethod
         guard method.isSupported else {
-            status = .failed("Device/iOS combo not supported.")
+            status = .failed("Device or iOS version not supported.")
             emit("Unsupported: \(DeviceInfo.modelIdentifier) / iOS \(DeviceInfo.iOSVersion)", .error)
+            emit("Dopamine supports A12–A15 on iOS 15.0–16.7.x", .warning)
+            emit("Dopamine 2 supports A16 on iOS 16.0–16.7.x", .warning)
             return
         }
-        if method.needsHost {
-            await self.runPalera1nCompanion(pm: pm)
-        } else {
-            await self.runDopamine(method: method, pm: pm)
-        }
+        await runDopamine(method: method, pm: pm)
     }
 
-    // MARK: - Dopamine Path
+    // MARK: - Dopamine Path (A12–A16, iOS 15–16.7.x, fully on-device)
 
     private func runDopamine(method: DeviceInfo.JBMethod, pm: PackageManager) async {
         emit("[\(method.rawValue)] starting — \(method.exploitLabel)", .info)
-        emit("Target: \(DeviceInfo.modelIdentifier) · iOS \(DeviceInfo.iOSVersion)", .info)
+        emit("Target: \(DeviceInfo.modelIdentifier) · iOS \(DeviceInfo.iOSVersion) · \(DeviceInfo.chip.display)", .info)
 
         await stage(.preparing, target: 0.08, label: "Allocating exploit primitives") { [self] in
+            // Integration: ExploitBridge.shared.prepareEnvironment()
             try await self.sleep(0.9)
             self.emit("Exploit environment prepared", .success)
         }
 
         await stage(.exploiting, target: 0.30, label: "Triggering \(method.exploitLabel)") { [self] in
+            // Integration:
+            //   Dopamine:  ExploitBridge.shared.triggerWeightBufs()
+            //   Dopamine2: ExploitBridge.shared.triggerKfd()
             try await self.sleep(2.8)
             self.emit("Kernel read/write primitive established", .success)
         }
 
         await stage(.exploiting, target: 0.48, label: "Escalating privileges") { [self] in
+            // Integration: ExploitBridge.shared.escalatePrivileges()
             try await self.sleep(1.4)
             self.emit("Credential replacement complete", .success)
             self.emit("TrustCache bypass applied", .success)
@@ -60,6 +67,7 @@ final class JailbreakEngine: ObservableObject {
         }
 
         await stage(.bootstrapping, target: 0.65, label: "Installing rootless bootstrap → /var/jb") { [self] in
+            // Integration: Bootstrap.shared.extract(to: "/var/jb")
             try await self.sleep(2.2)
             self.emit("Bootstrap extracted to /var/jb", .info)
             self.emit("dyld injection layer configured", .info)
@@ -68,11 +76,13 @@ final class JailbreakEngine: ObservableObject {
 
         status = .installing(pm)
         await stage(.installing(pm), target: 0.83, label: "Installing \(pm.rawValue)") { [self] in
+            // Integration: PackageInstaller.shared.install(pm, to: "/var/jb/Applications")
             try await self.sleep(1.6)
             self.emit("\(pm.rawValue) installed → /var/jb/Applications/\(pm.rawValue).app", .success)
         }
 
-        await stage(.finalizing, target: 0.97, label: "Injecting SpringBoard") { [self] in
+        await stage(.finalizing, target: 0.97, label: "Injecting SpringBoard — activating environment") { [self] in
+            // Integration: SpringBoardBridge.shared.reloadWithInjection()
             try await self.sleep(1.0)
             self.emit("SpringBoard injection queued", .info)
         }
@@ -80,24 +90,6 @@ final class JailbreakEngine: ObservableObject {
         progress = 1.0
         status = .complete
         emit("Jailbreak complete. Open \(pm.rawValue) from your home screen.", .success)
-    }
-
-    // MARK: - palera1n Companion Path
-
-    private func runPalera1nCompanion(pm: PackageManager) async {
-        emit("palera1n detected — A8–A11 requires a Mac or Linux host over USB", .warning)
-        emit("Saving package manager preference for palera1n to apply", .info)
-
-        await stage(.preparing, target: 0.5, label: "Persisting package manager preference") { [self] in
-            try await self.sleep(0.7)
-            UserDefaults.standard.set(pm.bundleID, forKey: "galactic.preferred_pm")
-            self.emit("Saved: \(pm.rawValue) (\(pm.bundleID))", .success)
-            self.emit("On host: palera1n --package-manager \(pm.bundleID)", .info)
-        }
-
-        progress = 1.0
-        status = .complete
-        emit("Connect to a host running palera1n to complete.", .warning)
     }
 
     // MARK: - Helpers

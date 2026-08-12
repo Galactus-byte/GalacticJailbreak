@@ -52,17 +52,16 @@ struct DeviceInfo {
     static var jailbreakMethod: JBMethod {
         let v = versionTuple
         switch chip {
-        // checkm8 bootrom — palera1n (semi-tethered, needs a host)
+        // A8–A11 — requires a computer, not supported in app
         case .a8, .a9, .a10, .a11:
-            guard v.major == 15 || v.major == 16 else { return .unsupported }
-            return .palera1n
+            return .unsupported
 
-        // weightBufs kernel exploit — Dopamine (fully on-device)
+        // A12–A15 — Dopamine (weightBufs exploit, fully on-device)
         case .a12, .a13, .a14, .a15:
             guard v.major == 15 || (v.major == 16 && v.minor <= 7) else { return .unsupported }
             return .dopamine
 
-        // kfd / XPF exploit — Dopamine 2
+        // A16 — Dopamine 2 (kfd / XPF exploit)
         case .a16:
             guard v.major == 16 && v.minor <= 7 else { return .unsupported }
             return .dopamine2
@@ -76,23 +75,18 @@ struct DeviceInfo {
 
     enum ChipGen: String {
         case a8, a9, a10, a11, a12, a13, a14, a15, a16, unknown
-
         var display: String { rawValue.uppercased() }
     }
 
     enum JBMethod: String {
-        case palera1n  = "palera1n"
         case dopamine  = "Dopamine"
         case dopamine2 = "Dopamine 2"
         case unsupported = "Unsupported"
 
         var isSupported: Bool { self != .unsupported }
 
-        var needsHost: Bool { self == .palera1n }
-
         var exploitLabel: String {
             switch self {
-            case .palera1n:   return "checkm8 bootrom"
             case .dopamine:   return "weightBufs kernel r/w"
             case .dopamine2:  return "kfd / XPF primitive"
             case .unsupported: return "—"
@@ -101,7 +95,6 @@ struct DeviceInfo {
 
         var badge: Color {
             switch self {
-            case .palera1n:   return .orange
             case .dopamine:   return .purple
             case .dopamine2:  return .cyan
             case .unsupported: return .red
