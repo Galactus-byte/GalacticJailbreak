@@ -38,53 +38,84 @@ final class JailbreakEngine: ObservableObject {
         await runDopamine(method: method, pm: pm)
     }
 
-    // MARK: - Dopamine Path (A12–A16, iOS 15–16.7.x, fully on-device)
+    // MARK: - Dopamine Path (A12–A16, fully on-device)
 
     private func runDopamine(method: DeviceInfo.JBMethod, pm: PackageManager) async {
         emit("[\(method.rawValue)] starting — \(method.exploitLabel)", .info)
         emit("Target: \(DeviceInfo.modelIdentifier) · iOS \(DeviceInfo.iOSVersion) · \(DeviceInfo.chip.display)", .info)
 
-        await stage(.preparing, target: 0.08, label: "Allocating exploit primitives") { [self] in
-            // Integration: ExploitBridge.shared.prepareEnvironment()
-            try await self.sleep(0.9)
-            self.emit("Exploit environment prepared", .success)
+        // Stage 1 — Prepare environment
+        await stage(.preparing, target: 0.08, label: "Preparing environment") { [self] in
+            let env = DOEnvironmentManager.shared()
+            guard env?.prepare() == true else {
+                throw JBError.stageFailed("Environment preparation failed")
+            }
+            self.emit("Environment prepared", .success)
         }
 
+        // Stage 2 — Trigger kernel exploit
         await stage(.exploiting, target: 0.30, label: "Triggering \(method.exploitLabel)") { [self] in
-            // Integration:
-            //   Dopamine:  ExploitBridge.shared.triggerWeightBufs()
-            //   Dopamine2: ExploitBridge.shared.triggerKfd()
-            try await self.sleep(2.8)
+            var error: NSError?
+            let exploitManager = DOExploitManager.shared()
+            let success = exploitManager?.runExploit(&error) ?? false
+            if !success {
+                throw error ?? JBError.stageFailed("Exploit failed — try again")
+            }
             self.emit("Kernel read/write primitive established", .success)
         }
 
+        // Stage 3 — Escalate privileges
         await stage(.exploiting, target: 0.48, label: "Escalating privileges") { [self] in
-            // Integration: ExploitBridge.shared.escalatePrivileges()
-            try await self.sleep(1.4)
+            var error: NSError?
+            let jailbreaker = DOJailbreaker.shared()
+            let success = jailbreaker?.escalatePrivileges(&error) ?? false
+            if !success {
+                throw error ?? JBError.stageFailed("Privilege escalation failed")
+            }
             self.emit("Credential replacement complete", .success)
             self.emit("TrustCache bypass applied", .success)
             self.emit("Platform policy suspended", .success)
         }
 
+        // Stage 4 — Bootstrap /var/jb
         await stage(.bootstrapping, target: 0.65, label: "Installing rootless bootstrap → /var/jb") { [self] in
-            // Integration: Bootstrap.shared.extract(to: "/var/jb")
-            try await self.sleep(2.2)
-            self.emit("Bootstrap extracted to /var/jb", .info)
-            self.emit("dyld injection layer configured", .info)
+            var error: NSError?
+            let bootstrapper = DOBootstrapper.shared()
+            let success = bootstrapper?.bootstrap(&error) ?? false
+            if !success {
+                throw error ?? JBError.stageFailed("Bootstrap installation failed")
+            }
+            self.emit("Bootstrap extracted to /var/jb", .success)
+            self.emit("dyld injection layer configured", .success)
             self.emit("TweakLoader installed", .success)
         }
 
+        // Stage 5 — Install package manager
         status = .installing(pm)
         await stage(.installing(pm), target: 0.83, label: "Installing \(pm.rawValue)") { [self] in
-            // Integration: PackageInstaller.shared.install(pm, to: "/var/jb/Applications")
-            try await self.sleep(1.6)
+            var error: NSError?
+            let jailbreaker = DOJailbreaker.shared()
+
+            // Save preferred package manager via DOPreferenceManager
+            DOPreferenceManager.shared()?.setPreferredPackageManager(pm.bundleID)
+
+            let success = jailbreaker?.installPackageManager(pm.bundleID, error: &error) ?? false
+            if !success {
+                throw error ?? JBError.stageFailed("\(pm.rawValue) installation failed")
+            }
             self.emit("\(pm.rawValue) installed → /var/jb/Applications/\(pm.rawValue).app", .success)
         }
 
-        await stage(.finalizing, target: 0.97, label: "Injecting SpringBoard — activating environment") { [self] in
-            // Integration: SpringBoardBridge.shared.reloadWithInjection()
-            try await self.sleep(1.0)
-            self.emit("SpringBoard injection queued", .info)
+        // Stage 6 — Activate jailbreak environment
+        await stage(.finalizing, target: 0.97, label: "Activating jailbreak environment") { [self] in
+            var error: NSError?
+            let jailbreaker = DOJailbreaker.shared()
+            let success = jailbreaker?.finalizeJailbreak(&error) ?? false
+            if !success {
+                throw error ?? JBError.stageFailed("Finalization failed")
+            }
+            self.emit("SpringBoard injection active", .success)
+            self.emit("Jailbreak environment live", .success)
         }
 
         progress = 1.0
@@ -114,12 +145,17 @@ final class JailbreakEngine: ObservableObject {
         progress = target
     }
 
-    private func sleep(_ seconds: Double) async throws {
-        try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-    }
-
     func emit(_ message: String, _ level: LogEntry.Level = .info) {
         log.append(LogEntry(timestamp: Date(), message: message, level: level))
+    }
+
+    // MARK: - Error Type
+
+    enum JBError: LocalizedError {
+        case stageFailed(String)
+        var errorDescription: String? {
+            switch self { case .stageFailed(let r): return r }
+        }
     }
 
     // MARK: - Nested Types
