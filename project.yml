@@ -16,6 +16,7 @@ targets:
     deploymentTarget: "15.0"
     sources:
       - Sources
+      - Assets.xcassets
     info:
       path: Info.plist
     settings:
