@@ -17,6 +17,8 @@ targets:
     sources:
       - Sources
       - Assets.xcassets
+      - path: Dopamine/Application/Dopamine/UI
+        name: DopamineUI
       - path: Dopamine/Application/Dopamine/Jailbreak
         name: DopamineCore
     settings:

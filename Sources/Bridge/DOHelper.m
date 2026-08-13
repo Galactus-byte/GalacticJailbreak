@@ -1,4 +1,5 @@
 #import "DOHelper.h"
+#import "../../Dopamine/Application/Dopamine/UI/DOUIManager.h"
 #import "../../Dopamine/Application/Dopamine/Jailbreak/DOJailbreaker.h"
 #import "../../Dopamine/Application/Dopamine/Jailbreak/DOBootstrapper.h"
 #import "../../Dopamine/Application/Dopamine/Jailbreak/DOEnvironmentManager.h"
