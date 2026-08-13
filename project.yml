@@ -19,11 +19,6 @@ targets:
       - Assets.xcassets
       - path: Dopamine/Application/Dopamine/Jailbreak
         name: DopamineCore
-      - path: Dopamine/Application/Dopamine/UI
-        name: DopamineUI
-        excludes:
-          - "Update/**"
-          - "DOUpdateViewController.*"
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: io.galactic.jailbreak
       SWIFT_VERSION: "5.9"
