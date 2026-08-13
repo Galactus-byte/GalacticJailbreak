@@ -44,99 +44,68 @@ final class JailbreakEngine: ObservableObject {
         emit("[\(method.rawValue)] starting — \(method.exploitLabel)", .info)
         emit("Target: \(DeviceInfo.modelIdentifier) · iOS \(DeviceInfo.iOSVersion) · \(DeviceInfo.chip.display)", .info)
 
-        // Stage 1 — Check environment support via DOEnvironmentManager
+        // Stage 1 — Environment check
         await stage(.preparing, target: 0.08, label: "Checking environment") { [self] in
-            let env = DOEnvironmentManager.sharedManager()
-            guard env.isSupported() else {
+            guard DOHelper.isEnvironmentSupported() else {
                 throw JBError.stageFailed("Device not supported by Dopamine")
             }
-            if env.isJailbroken() {
+            if DOHelper.isDeviceJailbroken() {
                 self.emit("Previously jailbroken — re-jailbreaking", .warning)
             }
             self.emit("Environment check passed", .success)
         }
 
-        // Stage 2 — Run exploit + escalate privileges via DOJailbreaker
+        // Stage 2 — Run exploit + escalate via DOJailbreaker
         await stage(.exploiting, target: 0.40, label: "Running \(method.exploitLabel) exploit") { [self] in
-            let jailbreaker = DOJailbreaker()
-            var errOut: NSError? = nil
-            var didRemove: ObjCBool = false
-            var showLogs: ObjCBool = false
-
-            jailbreaker.run(
-                withError: &errOut,
-                didRemoveJailbreak: &didRemove,
-                showLogs: &showLogs
-            )
-
-            if let error = errOut {
+            if let error = DOHelper.runJailbreak() {
                 throw error
             }
-
-            if didRemove.boolValue {
-                self.emit("Previous jailbreak removed — rerun to jailbreak", .warning)
-                throw JBError.stageFailed("Removed previous jailbreak — tap Retry to jailbreak fresh")
-            }
-
             self.emit("Kernel read/write primitive established", .success)
             self.emit("Credential replacement complete", .success)
             self.emit("TrustCache bypass applied", .success)
         }
 
-        // Stage 3 — Prepare and download bootstrap via DOBootstrapper
+        // Stage 3 — Download and prepare bootstrap via DOBootstrapper
         await stage(.bootstrapping, target: 0.65, label: "Preparing bootstrap → /var/jb") { [self] in
-            let bootstrapper = DOBootstrapper()
-
-            // prepareBootstrapWithCompletion is async callback — wrap in continuation
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                bootstrapper.prepareBootstrap { error in
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+                DOHelper.prepareBootstrap { error in
                     if let error = error {
-                        continuation.resume(throwing: error)
+                        cont.resume(throwing: error)
                     } else {
-                        continuation.resume()
+                        cont.resume()
                     }
                 }
             }
+            self.emit("Bootstrap extracted to /var/jb", .success)
 
-            self.emit("Bootstrap downloaded and extracted to /var/jb", .success)
-
-            // Ensure /var/jb symlink is correct
-            if let symlinkError = bootstrapper.updateVarJbSymlink() {
+            if let symlinkError = DOHelper.updateVarJbSymlink() {
                 throw symlinkError
             }
             self.emit("Symlink /var/jb configured", .success)
         }
 
-        // Stage 4 — Install package manager via DOBootstrapper
+        // Stage 4 — Install selected package manager
         status = .installing(pm)
         await stage(.installing(pm), target: 0.83, label: "Installing \(pm.rawValue)") { [self] in
-            let bootstrapper = DOBootstrapper()
+            DOHelper.setPreferredPackageManager(pm.bundleID)
 
-            // DOPreferenceManager stores the preferred PM bundle ID
-            // Dopamine's installPackageManagers reads this preference
-            DOPreferenceManager.sharedManager()?.setPreferredPackageManagerBundleID(pm.bundleID)
-
-            if let pmError = bootstrapper.installPackageManagers() {
+            if let pmError = DOHelper.installPackageManagers() {
                 throw pmError
             }
             self.emit("\(pm.rawValue) installed → /var/jb/Applications/", .success)
         }
 
-        // Stage 5 — Finalize bootstrap and activate environment
+        // Stage 5 — Finalize environment
         await stage(.finalizing, target: 0.97, label: "Finalizing jailbreak environment") { [self] in
-            let bootstrapper = DOBootstrapper()
-            if let finalizeError = bootstrapper.finalizeBootstrap() {
+            if let finalizeError = DOHelper.finalizeBootstrap() {
                 throw finalizeError
             }
             self.emit("Bootstrap finalized", .success)
 
-            // Mark device as jailbroken in DOEnvironmentManager
-            DOEnvironmentManager.sharedManager().setJailbroken(true)
+            DOHelper.markDeviceJailbroken(true)
             self.emit("Environment marked as jailbroken", .success)
 
-            // Finalize via DOJailbreaker
-            let jailbreaker = DOJailbreaker()
-            jailbreaker.finalize()
+            DOHelper.finalizeJailbreaker()
             self.emit("SpringBoard injection active", .success)
         }
 
@@ -145,7 +114,13 @@ final class JailbreakEngine: ObservableObject {
         emit("Jailbreak complete. Open \(pm.rawValue) from your home screen.", .success)
     }
 
-    // MARK: - Helpers
+    // MARK: - Respring (called from JailbreakView after complete)
+
+    func respring() {
+        DOHelper.respring()
+    }
+
+    // MARK: - Stage Runner
 
     private func stage(
         _ s: Status,
