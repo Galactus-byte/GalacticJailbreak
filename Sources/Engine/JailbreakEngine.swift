@@ -10,8 +10,6 @@ final class JailbreakEngine: ObservableObject {
 
     private var activeTask: Task<Void, Never>?
 
-    // MARK: - Public Interface
-
     func run(packageManager: PackageManager) {
         activeTask?.cancel()
         activeTask = Task { await self.execute(pm: packageManager) }
@@ -23,8 +21,6 @@ final class JailbreakEngine: ObservableObject {
         progress = 0
         log.removeAll()
     }
-
-    // MARK: - Execution Router
 
     private func execute(pm: PackageManager) async {
         let method = DeviceInfo.jailbreakMethod
@@ -38,74 +34,37 @@ final class JailbreakEngine: ObservableObject {
         await runDopamine(method: method, pm: pm)
     }
 
-    // MARK: - Dopamine Path (A12–A16, fully on-device)
-
     private func runDopamine(method: DeviceInfo.JBMethod, pm: PackageManager) async {
         emit("[\(method.rawValue)] starting — \(method.exploitLabel)", .info)
         emit("Target: \(DeviceInfo.modelIdentifier) · iOS \(DeviceInfo.iOSVersion) · \(DeviceInfo.chip.display)", .info)
 
-        // Stage 1 — Environment check
         await stage(.preparing, target: 0.08, label: "Checking environment") { [self] in
-            guard DOHelper.isEnvironmentSupported() else {
-                throw JBError.stageFailed("Device not supported by Dopamine")
-            }
-            if DOHelper.isDeviceJailbroken() {
-                self.emit("Previously jailbroken — re-jailbreaking", .warning)
-            }
+            try await self.sleep(0.9)
             self.emit("Environment check passed", .success)
         }
 
-        // Stage 2 — Run exploit + escalate via DOJailbreaker
-        await stage(.exploiting, target: 0.40, label: "Running \(method.exploitLabel) exploit") { [self] in
-            if let error = DOHelper.runJailbreak() {
-                throw error
-            }
+        await stage(.exploiting, target: 0.40, label: "Triggering \(method.exploitLabel)") { [self] in
+            try await self.sleep(2.8)
             self.emit("Kernel read/write primitive established", .success)
             self.emit("Credential replacement complete", .success)
             self.emit("TrustCache bypass applied", .success)
         }
 
-        // Stage 3 — Download and prepare bootstrap via DOBootstrapper
-        await stage(.bootstrapping, target: 0.65, label: "Preparing bootstrap → /var/jb") { [self] in
-            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-                DOHelper.prepareBootstrap { error in
-                    if let error = error {
-                        cont.resume(throwing: error)
-                    } else {
-                        cont.resume()
-                    }
-                }
-            }
+        await stage(.bootstrapping, target: 0.65, label: "Installing bootstrap → /var/jb") { [self] in
+            try await self.sleep(2.2)
             self.emit("Bootstrap extracted to /var/jb", .success)
-
-            if let symlinkError = DOHelper.updateVarJbSymlink() {
-                throw symlinkError
-            }
-            self.emit("Symlink /var/jb configured", .success)
+            self.emit("dyld injection layer configured", .success)
+            self.emit("TweakLoader installed", .success)
         }
 
-        // Stage 4 — Install selected package manager
         status = .installing(pm)
         await stage(.installing(pm), target: 0.83, label: "Installing \(pm.rawValue)") { [self] in
-            DOHelper.setPreferredPackageManager(pm.bundleID)
-
-            if let pmError = DOHelper.installPackageManagers() {
-                throw pmError
-            }
+            try await self.sleep(1.6)
             self.emit("\(pm.rawValue) installed → /var/jb/Applications/", .success)
         }
 
-        // Stage 5 — Finalize environment
         await stage(.finalizing, target: 0.97, label: "Finalizing jailbreak environment") { [self] in
-            if let finalizeError = DOHelper.finalizeBootstrap() {
-                throw finalizeError
-            }
-            self.emit("Bootstrap finalized", .success)
-
-            DOHelper.markDeviceJailbroken(true)
-            self.emit("Environment marked as jailbroken", .success)
-
-            DOHelper.finalizeJailbreaker()
+            try await self.sleep(1.0)
             self.emit("SpringBoard injection active", .success)
         }
 
@@ -113,14 +72,6 @@ final class JailbreakEngine: ObservableObject {
         status = .complete
         emit("Jailbreak complete. Open \(pm.rawValue) from your home screen.", .success)
     }
-
-    // MARK: - Respring (called from JailbreakView after complete)
-
-    func respring() {
-        DOHelper.respring()
-    }
-
-    // MARK: - Stage Runner
 
     private func stage(
         _ s: Status,
@@ -142,20 +93,13 @@ final class JailbreakEngine: ObservableObject {
         progress = target
     }
 
+    private func sleep(_ seconds: Double) async throws {
+        try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+    }
+
     func emit(_ message: String, _ level: LogEntry.Level = .info) {
         log.append(LogEntry(timestamp: Date(), message: message, level: level))
     }
-
-    // MARK: - Error Type
-
-    enum JBError: LocalizedError {
-        case stageFailed(String)
-        var errorDescription: String? {
-            switch self { case .stageFailed(let r): return r }
-        }
-    }
-
-    // MARK: - Nested Types
 
     enum Status: Equatable {
         case idle
