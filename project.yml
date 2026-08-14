@@ -28,6 +28,25 @@ targets:
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         UILaunchScreen: {}
+    dependencies:
+      - framework: Frameworks/ClearSword.framework
+        embed: true
+      - framework: Frameworks/DarkSword.framework
+        embed: true
+      - framework: Frameworks/Titan.framework
+        embed: true
+      - framework: Frameworks/badRecovery.framework
+        embed: true
+      - framework: Frameworks/dmaFail.framework
+        embed: true
+      - framework: Frameworks/kfd.framework
+        embed: true
+      - framework: Frameworks/momentarius.framework
+        embed: true
+      - framework: Frameworks/multicast_bytecopy.framework
+        embed: true
+      - framework: Frameworks/weightBufs.framework
+        embed: true
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: io.galactic.jailbreak
       SWIFT_VERSION: "5.9"
@@ -37,3 +56,5 @@ targets:
       CODE_SIGNING_ALLOWED: NO
       ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
       SWIFT_OBJC_BRIDGING_HEADER: Sources/GalacticJailbreak-Bridging-Header.h
+      FRAMEWORK_SEARCH_PATHS: "$(PROJECT_DIR)/Frameworks"
+      LD_RUNPATH_SEARCH_PATHS: "@executable_path/Frameworks"
