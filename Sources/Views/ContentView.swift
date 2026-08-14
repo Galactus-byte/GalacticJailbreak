@@ -7,6 +7,10 @@ struct ContentView: View {
     @State private var selectedPM: PackageManager? = nil
     @State private var phase: Phase = .selection
 
+    private var isSupported: Bool {
+        DeviceInfo.jailbreakMethod.isSupported
+    }
+
     var body: some View {
         ZStack {
             GalacticBackgroundView()
@@ -17,7 +21,9 @@ struct ContentView: View {
                     header
                         .padding(.top, 52)
 
-                    if phase == .selection {
+                    if !isSupported {
+                        unsupportedView
+                    } else if phase == .selection {
                         PackageManagerView(selected: $selectedPM) {
                             withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
                                 phase = .jailbreaking
@@ -44,6 +50,85 @@ struct ContentView: View {
             }
         }
         .preferredColorScheme(.dark)
+    }
+
+    // MARK: - Unsupported View
+
+    private var unsupportedView: some View {
+        VStack(spacing: 20) {
+            ZStack {
+                Circle()
+                    .fill(Color.red.opacity(0.15))
+                    .frame(width: 80, height: 80)
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 44))
+                    .foregroundColor(.red)
+            }
+
+            VStack(spacing: 10) {
+                Text("Device Not Supported")
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundColor(.white)
+
+                Text("Your device is not supported. Dopamine requires iOS 15.0–16.7.x on A12–A16 chips.")
+                    .font(.system(size: 14))
+                    .foregroundColor(.white.opacity(0.6))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            // Device info card
+            VStack(spacing: 8) {
+                infoRow(label: "Device", value: DeviceInfo.modelIdentifier)
+                infoRow(label: "iOS", value: DeviceInfo.iOSVersion)
+                infoRow(label: "Chip", value: DeviceInfo.chip.display)
+                infoRow(label: "Status", value: "Unsupported")
+            }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(Color.white.opacity(0.05))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .strokeBorder(Color.red.opacity(0.3), lineWidth: 1)
+                    )
+            )
+
+            // Supported devices info
+            VStack(spacing: 6) {
+                Text("SUPPORTED DEVICES")
+                    .font(.system(size: 9, weight: .black, design: .monospaced))
+                    .kerning(3)
+                    .foregroundColor(.white.opacity(0.3))
+
+                Text("iPhone XS / XR / 11 / 12 / 13 / 14 Pro\niOS 15.0 – 16.7.x only")
+                    .font(.system(size: 12))
+                    .foregroundColor(.white.opacity(0.4))
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.top, 4)
+        }
+        .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color.white.opacity(0.04))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .strokeBorder(Color.red.opacity(0.2), lineWidth: 1)
+                )
+        )
+    }
+
+    private func infoRow(label: String, value: String) -> some View {
+        HStack {
+            Text(label)
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundColor(.white.opacity(0.4))
+            Spacer()
+            Text(value)
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .foregroundColor(.white.opacity(0.7))
+        }
     }
 
     // MARK: - Header
@@ -74,15 +159,16 @@ struct ContentView: View {
 
             deviceBadge
 
-            // Phase step indicator
-            HStack(spacing: 6) {
-                stepDot(active: phase == .selection,  done: phase == .jailbreaking, label: "1")
-                Rectangle()
-                    .fill(phase == .jailbreaking ? Color.cyan.opacity(0.6) : Color.white.opacity(0.12))
-                    .frame(width: 28, height: 1)
-                stepDot(active: phase == .jailbreaking, done: false, label: "2")
+            if isSupported {
+                HStack(spacing: 6) {
+                    stepDot(active: phase == .selection, done: phase == .jailbreaking, label: "1")
+                    Rectangle()
+                        .fill(phase == .jailbreaking ? Color.cyan.opacity(0.6) : Color.white.opacity(0.12))
+                        .frame(width: 28, height: 1)
+                    stepDot(active: phase == .jailbreaking, done: false, label: "2")
+                }
+                .padding(.top, 6)
             }
-            .padding(.top, 6)
         }
     }
 
