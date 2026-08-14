@@ -17,8 +17,6 @@ targets:
     sources:
       - Sources
       - Assets.xcassets
-      - path: Dopamine/Application/Dopamine/Jailbreak
-        name: DopamineCore
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: io.galactic.jailbreak
       SWIFT_VERSION: "5.9"
