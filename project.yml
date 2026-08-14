@@ -17,6 +17,17 @@ targets:
     sources:
       - Sources
       - Assets.xcassets
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: GalacticJB
+        CFBundleIdentifier: io.galactic.jailbreak
+        CFBundleShortVersionString: "1.0.0"
+        CFBundleVersion: "1"
+        LSRequiresIPhoneOS: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UILaunchScreen: {}
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: io.galactic.jailbreak
       SWIFT_VERSION: "5.9"
