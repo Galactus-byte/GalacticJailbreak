@@ -338,6 +338,3 @@ final class JailbreakEngine: ObservableObject {
         enum Level { case info, success, warning, error }
     }
 }
-git add .
-git commit -m "feat: download Dopamine bootstrap at runtime, dlopen from /var/jb"
-git push
