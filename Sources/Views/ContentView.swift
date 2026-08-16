@@ -1,198 +1,111 @@
+import UIKit
+import Foundation
 import SwiftUI
 
-struct ContentView: View {
+struct DeviceInfo {
 
-    enum Phase { case selection, jailbreaking }
+    // MARK: - Hardware Identification
 
-    @State private var selectedPM: PackageManager? = nil
-    @State private var phase: Phase = .selection
-
-    private var isSupported: Bool {
-        DeviceInfo.jailbreakMethod.isSupported
+    static var modelIdentifier: String {
+        var info = utsname()
+        uname(&info)
+        return withUnsafePointer(to: &info.machine) {
+            $0.withMemoryRebound(to: CChar.self, capacity: 1) { String(cString: $0) }
+        }
     }
 
-    var body: some View {
-        ZStack {
-            GalacticBackgroundView()
-                .ignoresSafeArea()
+    static var iOSVersion: String { UIDevice.current.systemVersion }
 
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 28) {
-                    header
-                        .padding(.top, 52)
-
-                    if !isSupported {
-                        unsupportedView
-                    } else if phase == .selection {
-                        PackageManagerView(selected: $selectedPM) {
-                            withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
-                                phase = .jailbreaking
-                            }
-                        }
-                        .transition(.asymmetric(
-                            insertion: .move(edge: .leading).combined(with: .opacity),
-                            removal:   .move(edge: .leading).combined(with: .opacity)
-                        ))
-                    } else {
-                        JailbreakView(
-                            packageManager: selectedPM ?? .sileo,
-                            appPhase: $phase
-                        )
-                        .transition(.asymmetric(
-                            insertion: .move(edge: .trailing).combined(with: .opacity),
-                            removal:   .move(edge: .trailing).combined(with: .opacity)
-                        ))
-                    }
-
-                    Spacer(minLength: 40)
-                }
-                .padding(.horizontal, 20)
-            }
-        }
-        .preferredColorScheme(.dark)
-    }
-
-    // MARK: - Unsupported View
-
-    private var unsupportedView: some View {
-        VStack(spacing: 20) {
-            ZStack {
-                Circle()
-                    .fill(Color.red.opacity(0.15))
-                    .frame(width: 80, height: 80)
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 44))
-                    .foregroundColor(.red)
-            }
-
-            VStack(spacing: 10) {
-                Text("Device Not Supported")
-                    .font(.system(size: 22, weight: .bold))
-                    .foregroundColor(.white)
-
-                Text("Your device is not supported. Dopamine requires iOS 15.0–16.7.x on A12–A16 chips.")
-                    .font(.system(size: 14))
-                    .foregroundColor(.white.opacity(0.6))
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            // Device info card
-            VStack(spacing: 8) {
-                infoRow(label: "Device", value: DeviceInfo.modelIdentifier)
-                infoRow(label: "iOS", value: DeviceInfo.iOSVersion)
-                infoRow(label: "Chip", value: DeviceInfo.chip.display)
-                infoRow(label: "Status", value: "Unsupported")
-            }
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(Color.white.opacity(0.05))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .strokeBorder(Color.red.opacity(0.3), lineWidth: 1)
-                    )
-            )
-
-            // Supported devices info
-            VStack(spacing: 6) {
-                Text("SUPPORTED DEVICES")
-                    .font(.system(size: 9, weight: .black, design: .monospaced))
-                    .kerning(3)
-                    .foregroundColor(.white.opacity(0.3))
-
-                Text("iPhone XS / XR / 11 / 12 / 13 / 14 Pro\niOS 15.0 – 16.7.x only")
-                    .font(.system(size: 12))
-                    .foregroundColor(.white.opacity(0.4))
-                    .multilineTextAlignment(.center)
-            }
-            .padding(.top, 4)
-        }
-        .padding(20)
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(Color.white.opacity(0.04))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20)
-                        .strokeBorder(Color.red.opacity(0.2), lineWidth: 1)
-                )
+    static var versionTuple: (major: Int, minor: Int, patch: Int) {
+        let parts = iOSVersion.split(separator: ".").compactMap { Int($0) }
+        return (
+            parts.indices.contains(0) ? parts[0] : 0,
+            parts.indices.contains(1) ? parts[1] : 0,
+            parts.indices.contains(2) ? parts[2] : 0
         )
     }
 
-    private func infoRow(label: String, value: String) -> some View {
-        HStack {
-            Text(label)
-                .font(.system(size: 12, design: .monospaced))
-                .foregroundColor(.white.opacity(0.4))
-            Spacer()
-            Text(value)
-                .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                .foregroundColor(.white.opacity(0.7))
+    static var chip: ChipGen {
+        let id = modelIdentifier
+        // A8 / A8X
+        if id.matches(prefixes: ["iPhone7", "iPad5,1", "iPad5,2", "iPad5,3", "iPad5,4"]) { return .a8 }
+        // A9 / A9X
+        if id.matches(prefixes: ["iPhone8", "iPad6,3", "iPad6,4", "iPad6,7", "iPad6,8"]) { return .a9 }
+        // A10 / A10X
+        if id.matches(prefixes: ["iPhone9", "iPad6,11", "iPad6,12", "iPad7"]) { return .a10 }
+        // A11 — last checkm8 generation
+        if id.matches(prefixes: ["iPhone10"]) { return .a11 }
+        // A12 / A12X / A12Z
+        if id.matches(prefixes: ["iPhone11", "iPad8", "iPad11"]) { return .a12 }
+        // A13
+        if id.matches(prefixes: ["iPhone12", "iPad11,6", "iPad11,7"]) { return .a13 }
+        // A14
+        if id.matches(prefixes: ["iPhone13", "iPad13,1", "iPad13,2", "iPad13,4",
+                                  "iPad13,5", "iPad13,6", "iPad13,7"]) { return .a14 }
+        // A15
+        if id.matches(prefixes: ["iPhone14", "iPad14,1", "iPad14,2"]) { return .a15 }
+        // A16
+        if id.matches(prefixes: ["iPhone15"]) { return .a16 }
+        return .unknown
+    }
+
+    static var jailbreakMethod: JBMethod {
+        let v = versionTuple
+        switch chip {
+        // A8–A11 — requires a computer, not supported in app
+        case .a8, .a9, .a10, .a11:
+            return .unsupported
+
+        // A12–A15 — Dopamine (weightBufs exploit, fully on-device)
+        case .a12, .a13, .a14, .a15:
+            guard v.major == 15 || (v.major == 16 && v.minor <= 7) else { return .unsupported }
+            return .dopamine
+
+        // A16 — Dopamine 2 (kfd / XPF exploit)
+        case .a16:
+            guard v.major == 16 && v.minor <= 7 else { return .unsupported }
+            return .dopamine2
+
+        case .unknown:
+            return .unsupported
         }
     }
 
-    // MARK: - Header
+    // MARK: - Nested Types
 
-    private var header: some View {
-        VStack(spacing: 6) {
-            Text("G A L A C T I C")
-                .font(.system(size: 10, weight: .black, design: .monospaced))
-                .kerning(6)
-                .foregroundStyle(
-                    LinearGradient(
-                        colors: [.cyan, .purple],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
+    enum ChipGen: String {
+        case a8, a9, a10, a11, a12, a13, a14, a15, a16, unknown
+        var display: String { rawValue.uppercased() }
+    }
 
-            Text("Jailbreak")
-                .font(.system(size: 44, weight: .heavy, design: .rounded))
-                .foregroundStyle(
-                    LinearGradient(
-                        colors: [.purple, .blue, .cyan],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
-                .shadow(color: .purple.opacity(0.7), radius: 22)
+    enum JBMethod: String {
+        case dopamine  = "Dopamine"
+        case dopamine2 = "Dopamine 2"
+        case unsupported = "Unsupported"
 
-            deviceBadge
+        var isSupported: Bool { self != .unsupported }
 
-            if isSupported {
-                HStack(spacing: 6) {
-                    stepDot(active: phase == .selection, done: phase == .jailbreaking, label: "1")
-                    Rectangle()
-                        .fill(phase == .jailbreaking ? Color.cyan.opacity(0.6) : Color.white.opacity(0.12))
-                        .frame(width: 28, height: 1)
-                    stepDot(active: phase == .jailbreaking, done: false, label: "2")
-                }
-                .padding(.top, 6)
+        var exploitLabel: String {
+            switch self {
+            case .dopamine:   return "weightBufs kernel r/w"
+            case .dopamine2:  return "kfd / XPF primitive"
+            case .unsupported: return "—"
+            }
+        }
+
+        var badge: Color {
+            switch self {
+            case .dopamine:   return .purple
+            case .dopamine2:  return .cyan
+            case .unsupported: return .red
             }
         }
     }
+}
 
-    private var deviceBadge: some View {
-        HStack(spacing: 5) {
-            Image(systemName: "iphone")
-                .font(.system(size: 10))
-            Text("\(DeviceInfo.modelIdentifier)  ·  iOS \(DeviceInfo.iOSVersion)  ·  \(DeviceInfo.chip.display)")
-                .font(.system(size: 10, design: .monospaced))
-        }
-        .foregroundColor(.white.opacity(0.38))
-    }
-
-    private func stepDot(active: Bool, done: Bool, label: String) -> some View {
-        ZStack {
-            Circle()
-                .fill(active ? Color.cyan.opacity(0.25) : (done ? Color.green.opacity(0.25) : Color.white.opacity(0.06)))
-                .frame(width: 22, height: 22)
-            Circle()
-                .strokeBorder(active ? .cyan : (done ? .green : Color.white.opacity(0.15)), lineWidth: 1.2)
-                .frame(width: 22, height: 22)
-            Text(label)
-                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                .foregroundColor(active ? .cyan : (done ? .green : .white.opacity(0.3)))
-        }
+// MARK: - String prefix helper
+private extension String {
+    func matches(prefixes: [String]) -> Bool {
+        prefixes.contains { hasPrefix($0) }
     }
 }
