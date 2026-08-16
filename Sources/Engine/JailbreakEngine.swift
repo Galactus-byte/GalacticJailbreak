@@ -8,14 +8,18 @@ final class JailbreakEngine: ObservableObject {
     @Published var status: Status = .idle
     @Published var progress: Double = 0.0
     @Published var log: [LogEntry] = []
+    @Published var downloadProgress: Double = 0.0
 
     private var activeTask: Task<Void, Never>?
+    private var frameworkHandles: [UnsafeMutableRawPointer] = []
 
-    // MARK: - Framework Handles
-    private var weightBufsHandle: UnsafeMutableRawPointer?
-    private var kfdHandle: UnsafeMutableRawPointer?
-    private var clearSwordHandle: UnsafeMutableRawPointer?
-    private var titanHandle: UnsafeMutableRawPointer?
+    // Dopamine latest release IPA URL
+    private let dopamineIPAURL = URL(string: "https://github.com/opa334/Dopamine/releases/latest/download/Dopamine.ipa")!
+
+    // Local paths
+    private var jbRoot: String { "/var/jb" }
+    private var frameworksPath: String { "\(jbRoot)/Frameworks" }
+    private var tmpPath: String { NSTemporaryDirectory() + "GalacticJB" }
 
     // MARK: - Public Interface
 
@@ -28,6 +32,7 @@ final class JailbreakEngine: ObservableObject {
         activeTask?.cancel()
         status = .idle
         progress = 0
+        downloadProgress = 0
         log.removeAll()
         unloadFrameworks()
     }
@@ -52,36 +57,41 @@ final class JailbreakEngine: ObservableObject {
         emit("[\(method.rawValue)] starting — \(method.exploitLabel)", .info)
         emit("Target: \(DeviceInfo.modelIdentifier) · iOS \(DeviceInfo.iOSVersion) · \(DeviceInfo.chip.display)", .info)
 
-        // Stage 1 — Load frameworks lazily at runtime
-        await stage(.preparing, target: 0.08, label: "Loading exploit frameworks") { [self] in
+        // Stage 1 — Download Dopamine IPA and extract frameworks
+        await stage(.preparing, target: 0.20, label: "Downloading Dopamine bootstrap") { [self] in
+            try await self.downloadAndExtractFrameworks()
+        }
+
+        // Stage 2 — Load frameworks via dlopen from /var/jb
+        await stage(.preparing, target: 0.28, label: "Loading exploit frameworks") { [self] in
             try self.loadFrameworks(method: method)
             self.emit("Exploit frameworks loaded", .success)
         }
 
-        // Stage 2 — Trigger kernel exploit
-        await stage(.exploiting, target: 0.40, label: "Triggering \(method.exploitLabel)") { [self] in
+        // Stage 3 — Trigger kernel exploit
+        await stage(.exploiting, target: 0.50, label: "Triggering \(method.exploitLabel)") { [self] in
             try await self.sleep(2.8)
             self.emit("Kernel read/write primitive established", .success)
             self.emit("Credential replacement complete", .success)
             self.emit("TrustCache bypass applied", .success)
         }
 
-        // Stage 3 — Bootstrap
-        await stage(.bootstrapping, target: 0.65, label: "Installing bootstrap → /var/jb") { [self] in
+        // Stage 4 — Bootstrap
+        await stage(.bootstrapping, target: 0.70, label: "Installing bootstrap → /var/jb") { [self] in
             try await self.sleep(2.2)
             self.emit("Bootstrap extracted to /var/jb", .success)
             self.emit("dyld injection layer configured", .success)
             self.emit("TweakLoader installed", .success)
         }
 
-        // Stage 4 — Install package manager
+        // Stage 5 — Install package manager
         status = .installing(pm)
-        await stage(.installing(pm), target: 0.83, label: "Installing \(pm.rawValue)") { [self] in
+        await stage(.installing(pm), target: 0.85, label: "Installing \(pm.rawValue)") { [self] in
             try await self.sleep(1.6)
             self.emit("\(pm.rawValue) installed → /var/jb/Applications/", .success)
         }
 
-        // Stage 5 — Finalize
+        // Stage 6 — Finalize
         await stage(.finalizing, target: 0.97, label: "Finalizing jailbreak environment") { [self] in
             try await self.sleep(1.0)
             self.emit("SpringBoard injection active", .success)
@@ -92,56 +102,159 @@ final class JailbreakEngine: ObservableObject {
         emit("Jailbreak complete. Open \(pm.rawValue) from your home screen.", .success)
     }
 
-    // MARK: - Framework Loading (lazy, only on supported devices)
+    // MARK: - Download + Extract
+
+    private func downloadAndExtractFrameworks() async throws {
+        // Check if frameworks already exist from a previous run
+        if FileManager.default.fileExists(atPath: "\(frameworksPath)/weightBufs.framework") {
+            emit("Frameworks already present at /var/jb — skipping download", .info)
+            return
+        }
+
+        // Create tmp directory
+        try? FileManager.default.createDirectory(
+            atPath: tmpPath,
+            withIntermediateDirectories: true
+        )
+
+        let ipaPath = "\(tmpPath)/Dopamine.ipa"
+
+        emit("Downloading Dopamine from GitHub releases...", .info)
+
+        // Download with progress
+        try await downloadFile(from: dopamineIPAURL, to: ipaPath)
+        emit("Download complete", .success)
+
+        // Extract IPA (it's a zip)
+        emit("Extracting bootstrap frameworks...", .info)
+        let extractPath = "\(tmpPath)/extracted"
+        try? FileManager.default.createDirectory(
+            atPath: extractPath,
+            withIntermediateDirectories: true
+        )
+
+        // Use unzip via posix_spawn
+        try spawnProcess("/usr/bin/unzip", args: ["-o", ipaPath, "-d", extractPath])
+
+        // Copy frameworks to /var/jb/Frameworks
+        let sourceFrameworks = "\(extractPath)/Payload/Dopamine.app/Frameworks"
+        try? FileManager.default.createDirectory(
+            atPath: frameworksPath,
+            withIntermediateDirectories: true
+        )
+
+        let frameworkNames = [
+            "weightBufs.framework",
+            "kfd.framework",
+            "ClearSword.framework",
+            "DarkSword.framework",
+            "Titan.framework",
+            "badRecovery.framework",
+            "dmaFail.framework",
+            "momentarius.framework",
+            "multicast_bytecopy.framework"
+        ]
+
+        for name in frameworkNames {
+            let src = "\(sourceFrameworks)/\(name)"
+            let dst = "\(frameworksPath)/\(name)"
+            if FileManager.default.fileExists(atPath: src) {
+                try? FileManager.default.removeItem(atPath: dst)
+                try FileManager.default.copyItem(atPath: src, toPath: dst)
+                emit("\(name) extracted", .info)
+            }
+        }
+
+        // Clean up tmp
+        try? FileManager.default.removeItem(atPath: tmpPath)
+        emit("Bootstrap extraction complete", .success)
+    }
+
+    private func downloadFile(from url: URL, to path: String) async throws {
+        return try await withCheckedThrowingContinuation { continuation in
+            let session = URLSession.shared
+            let task = session.downloadTask(with: url) { location, response, error in
+                if let error = error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                guard let location = location else {
+                    continuation.resume(throwing: JBError.stageFailed("Download returned no file"))
+                    return
+                }
+                do {
+                    try? FileManager.default.removeItem(atPath: path)
+                    try FileManager.default.moveItem(
+                        atPath: location.path,
+                        toPath: path
+                    )
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+
+            // Track download progress
+            let observation = task.progress.observe(\.fractionCompleted) { [weak self] progress, _ in
+                Task { @MainActor [weak self] in
+                    self?.downloadProgress = progress.fractionCompleted
+                    self?.emit(
+                        String(format: "Downloading... %.0f%%", progress.fractionCompleted * 100),
+                        .info
+                    )
+                }
+            }
+
+            task.resume()
+            _ = observation
+        }
+    }
+
+    private func spawnProcess(_ path: String, args: [String]) throws {
+        var pid: pid_t = 0
+        var cArgs = ([path] + args).map { strdup($0) }
+        cArgs.append(nil)
+        let result = posix_spawn(&pid, path, nil, nil, &cArgs, nil)
+        cArgs.compactMap { $0 }.forEach { free($0) }
+        guard result == 0 else {
+            throw JBError.stageFailed("Process failed: \(path) (exit \(result))")
+        }
+        // Wait for completion
+        var status: Int32 = 0
+        waitpid(pid, &status, 0)
+    }
+
+    // MARK: - Framework Loading
 
     private func loadFrameworks(method: DeviceInfo.JBMethod) throws {
-        let frameworksPath = Bundle.main.bundlePath + "/Frameworks"
-
-        // Load exploit framework based on chip generation
         switch method {
         case .dopamine:
-            // A12–A15: weightBufs exploit
-            let path = "\(frameworksPath)/weightBufs.framework/weightBufs"
-            weightBufsHandle = dlopen(path, RTLD_NOW | RTLD_LOCAL)
-            if weightBufsHandle == nil {
-                let err = String(cString: dlerror())
-                throw JBError.stageFailed("Failed to load weightBufs: \(err)")
-            }
-            emit("weightBufs.framework loaded", .info)
-
+            try loadFramework(name: "weightBufs")
         case .dopamine2:
-            // A16: kfd exploit
-            let path = "\(frameworksPath)/kfd.framework/kfd"
-            kfdHandle = dlopen(path, RTLD_NOW | RTLD_LOCAL)
-            if kfdHandle == nil {
-                let err = String(cString: dlerror())
-                throw JBError.stageFailed("Failed to load kfd: \(err)")
-            }
-            emit("kfd.framework loaded", .info)
-
+            try loadFramework(name: "kfd")
         case .unsupported:
             throw JBError.stageFailed("Unsupported device")
         }
 
-        // Load shared support frameworks
-        let supportFrameworks = ["ClearSword", "Titan", "momentarius", "multicast_bytecopy"]
-        for name in supportFrameworks {
-            let path = "\(frameworksPath)/\(name).framework/\(name)"
-            let handle = dlopen(path, RTLD_NOW | RTLD_LOCAL)
-            if handle != nil {
-                emit("\(name).framework loaded", .info)
-            }
+        // Support frameworks
+        for name in ["ClearSword", "Titan", "momentarius", "multicast_bytecopy"] {
+            try? loadFramework(name: name)
         }
     }
 
+    private func loadFramework(name: String) throws {
+        let path = "\(frameworksPath)/\(name).framework/\(name)"
+        guard let handle = dlopen(path, RTLD_NOW | RTLD_LOCAL) else {
+            let err = String(cString: dlerror())
+            throw JBError.stageFailed("Failed to load \(name): \(err)")
+        }
+        frameworkHandles.append(handle)
+        emit("\(name).framework loaded", .info)
+    }
+
     private func unloadFrameworks() {
-        [weightBufsHandle, kfdHandle, clearSwordHandle, titanHandle]
-            .compactMap { $0 }
-            .forEach { dlclose($0) }
-        weightBufsHandle = nil
-        kfdHandle = nil
-        clearSwordHandle = nil
-        titanHandle = nil
+        frameworkHandles.forEach { dlclose($0) }
+        frameworkHandles.removeAll()
     }
 
     // MARK: - Helpers
@@ -198,7 +311,7 @@ final class JailbreakEngine: ObservableObject {
         var label: String {
             switch self {
             case .idle:              return "Ready"
-            case .preparing:         return "Loading frameworks..."
+            case .preparing:         return "Preparing..."
             case .exploiting:        return "Exploiting kernel..."
             case .bootstrapping:     return "Bootstrapping /var/jb..."
             case .installing(let p): return "Installing \(p.rawValue)..."
@@ -225,3 +338,6 @@ final class JailbreakEngine: ObservableObject {
         enum Level { case info, success, warning, error }
     }
 }
+git add .
+git commit -m "feat: download Dopamine bootstrap at runtime, dlopen from /var/jb"
+git push
