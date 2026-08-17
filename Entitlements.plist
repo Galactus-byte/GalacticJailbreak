@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+    ╔══════════════════════════════════════════════════════╗
+    ║  GalacticJailbreak — Entitlements                   ║
+    ║                                                      ║
+    ║  Signer compatibility:                               ║
+    ║  ✦ TrollStore    — ALL entitlements work            ║
+    ║  ✦ Sideloadly    — only public entitlements work    ║
+    ║  ✦ AltStore      — only public entitlements work    ║
+    ║  ✦ Esign / Zsign — only public entitlements work    ║
+    ║                                                      ║
+    ║  Private entitlements are silently stripped by       ║
+    ║  free signers. TrollStore preserves all of them.    ║
+    ╚══════════════════════════════════════════════════════╝
+    -->
+
+    <!-- ── PUBLIC — work with ALL signers ────────────────── -->
+
+    <!-- Network access — needed for IPA download -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+
+    <!-- Extended virtual memory — public entitlement -->
+    <key>com.apple.developer.kernel.extended-virtual-addressing</key>
+    <true/>
+
+    <!-- Increased memory limit — public entitlement -->
+    <key>com.apple.developer.kernel.increased-memory-limit</key>
+    <true/>
+
+    <!-- Get task allow — debug builds, needed for some exploit paths -->
+    <key>get-task-allow</key>
+    <true/>
+
+    <!-- App identifier -->
+    <key>application-identifier</key>
+    <string>io.galactic.jailbreak</string>
+
+    <!-- ── PRIVATE — TrollStore / ldid / zsign only ──────── -->
+    <!--
+        The following entitlements are ignored/stripped by
+        Sideloadly, AltStore, and standard free signers.
+        They are preserved by TrollStore, ldid, and zsign
+        when signing with a fake certificate.
+        Without these, the exploit will fail at Stage 3.
+    -->
+
+    <!-- Platform binary — bypasses many security checks -->
+    <key>platform-application</key>
+    <true/>
+
+    <!-- Process info access — credential replacement -->
+    <key>proc_info-allow</key>
+    <true/>
+
+    <!-- Sandbox bypass — needed to write to /var/jb -->
+    <key>com.apple.private.security.no-sandbox</key>
+    <true/>
+
+    <!-- Persona management — credential swap -->
+    <key>com.apple.private.persona-mgmt</key>
+    <true/>
+
+    <!-- Full disk access via TCC -->
+    <key>com.apple.private.tcc.allow</key>
+    <array>
+        <string>kTCCServiceSystemPolicyAllFiles</string>
+    </array>
+
+    <!-- Storage access -->
+    <key>com.apple.private.security.storage-exempt.heritable</key>
+    <true/>
+
+    <key>com.apple.private.security.storage.AppBundles</key>
+    <true/>
+
+    <!-- SpringBoard interaction -->
+    <key>com.apple.springboard.CFUserNotification</key>
+    <true/>
+
+    <key>com.apple.springboard.launchapplications</key>
+    <true/>
+
+    <!-- Package installation -->
+    <key>com.apple.private.mobileinstall.allowedSPI</key>
+    <array>
+        <string>InstallForLaunchServices</string>
+    </array>
+
+    <!-- IOKit GPU access — required by weightBufs/kfd -->
+    <key>com.apple.security.exception.iokit-user-client-class</key>
+    <array>
+        <string>AGXDevice</string>
+    </array>
+
+</dict>
+</plist>
