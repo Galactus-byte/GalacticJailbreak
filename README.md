@@ -1,7 +1,8 @@
 # ✦ GalacticJailbreak
 
-> iOS jailbreak frontend · SwiftUI · Galactic UI · Dopamine · Dopamine 2
-> Package manager selector runs **before** the jailbreak activates.
+> Built on top of [Dopamine](https://github.com/opa334/Dopamine) by [@opa334dev](https://twitter.com/opa334dev)
+> and [TrollStore](https://github.com/opa334/TrollStore). All exploit code belongs to the original authors.
+> GalacticJailbreak is a UI frontend only. The jailbreak itself is Dopamine.
 
 <p align="center">
   <img src="https://capsule-render.vercel.app/api?type=waving&color=gradient&customColorList=6,11,20&height=200&section=header&text=GalacticJailbreak&fontSize=50&fontColor=ffffff&animation=twinkling&fontAlignY=35&desc=iOS%20Jailbreak%20Frontend%20%E2%80%94%20SwiftUI%20%C2%B7%20Dopamine%20%C2%B7%20Dopamine%202&descAlignY=55&descSize=16" />
@@ -14,7 +15,26 @@
   <img src="https://img.shields.io/badge/iOS-15.0--16.7-purple?style=flat-square&logo=apple" alt="iOS" />
   <img src="https://img.shields.io/badge/Swift-5.9-orange?style=flat-square&logo=swift" alt="Swift" />
   <img src="https://img.shields.io/badge/Signer-TrollStore-blue?style=flat-square" alt="TrollStore" />
+  <img src="https://img.shields.io/badge/Exploit-Dopamine-blueviolet?style=flat-square" alt="Dopamine" />
 </p>
+
+---
+
+## ✦ Credits
+
+This project would not exist without these people. Full stop.
+
+| Person | Contribution |
+|--------|-------------|
+| **[@opa334dev](https://twitter.com/opa334dev)** | Dopamine, Dopamine 2, TrollStore — all exploit frameworks, bootstrap, package manager debs |
+| **[@wh1te4ever](https://twitter.com/wh1te4ever)** | kfd exploit used by Dopamine 2 on A16 |
+| **[@hrtowii](https://twitter.com/hrtowii)** | Dopamine contributions |
+| **[@alfiecg_dev](https://twitter.com/alfiecg_dev)** | weightBufs exploit used by Dopamine on A12–A15 |
+| **[@Linus Henze](https://github.com/LinusHenze)** | CoreTrust bug that makes TrollStore possible |
+
+GalacticJailbreak is a **UI frontend only**. Every exploit, framework, bootstrap tarball,
+and package manager deb comes directly from opa334's Dopamine project.
+This app downloads Dopamine's own IPA at runtime and calls into it.
 
 ---
 
@@ -58,20 +78,19 @@ Full guide: **ios.cfw.guide/installing-trollstore**
 | A16 | Dopamine 2 | kfd / XPF primitive | 16.0 – 16.7.x |
 
 **Not supported:**
-- A11 and below (iPhone X and older) — needs a computer with palera1n
+- A11 and below (iPhone X and older) — needs palera1n on a computer
 - A17, M-series — no exploit available
 - iOS 17 and above — no jailbreak available
 - iOS 26 / 27 — no jailbreak available
 
-Unsupported devices see a clear error screen with device info. No crash.
+Unsupported devices see a clear error screen. No crash.
 
 ---
 
 ## Entitlements
 
-GalacticJailbreak ships with `Entitlements.plist` containing the exact same
-entitlements as the official Dopamine app. These are required for the kernel
-exploit to execute. They are preserved only when installed via TrollStore.
+`Entitlements.plist` contains the exact same entitlements as the official Dopamine app.
+Required for the kernel exploit. Preserved only when installed via TrollStore.
 
 Key entitlements:
 - `platform-application` — marks the app as a platform binary
@@ -86,25 +105,40 @@ Key entitlements:
 
 `JailbreakEngine.swift` runs a 6-stage pipeline when BEGIN is tapped:
 
-| Stage | What happens | Real or stub |
-|-------|-------------|-------------|
-| 1 | Download Dopamine IPA from GitHub releases, extract frameworks + dylibs | ✓ Real |
-| 2 | `dlopen` weightBufs or kfd framework + support frameworks | ✓ Real |
+| Stage | What happens | Status |
+|-------|-------------|--------|
+| 1 | Download Dopamine IPA, extract frameworks + dylibs to `/var/jb/` | ✓ Real |
+| 2 | `dlopen` weightBufs or kfd + support frameworks | ✓ Real |
 | 3 | Load `libjailbreak.dylib` + `libxpf.dylib`, call exploit via `dlsym` or ObjC runtime | ✓ Real |
-| 4 | Extract `bootstrap_1800.tar.zst` or `bootstrap_1900.tar.zst` to `/var/jb/` | ✓ Real |
-| 5 | Install selected package manager via `dpkg -i` using bundled `.deb` | ✓ Real |
-| 6 | Run `uicache -a` + `sbreload` to activate the jailbreak environment | ✓ Real |
+| 4 | Extract bootstrap to `/var/jb/` using bundled `bootstrap.tar.zst` | ✓ Real |
+| 5 | Install selected PM via `dpkg -i` using bundled `.deb` from Dopamine IPA | ✓ Real |
+| 6 | Run `uicache -a` + `sbreload` to activate jailbreak environment | ✓ Real |
 
-The engine also checks entitlements at runtime before Stage 1 runs and warns
-the user if `platform-application` is missing — so KSign/Sideloadly users
-see a clear message instead of a silent failure.
+---
+
+## EntitlementChecker
+
+`EntitlementChecker.swift` runs before Stage 1 and logs to the console:
+
+**TrollStore install:**
+```
+Signer: TrollStore
+platform-application entitlement active ✓
+Sandbox disabled ✓
+All entitlements active — ready to jailbreak ✓
+```
+
+**Free signer install:**
+```
+Signer: Sideloadly / AltStore / KSign
+⚠ platform-application missing — install via TrollStore
+⚠ Sandbox active — /var/jb writes will fail
+Recommendation: reinstall via TrollStore
+```
 
 ---
 
 ## Package Managers
-
-Selected before the jailbreak activates. Sileo and Zebra use bundled `.deb`
-files from the Dopamine IPA — no separate download needed.
 
 | Name | Source | Style |
 |------|--------|-------|
@@ -115,26 +149,23 @@ files from the Dopamine IPA — no separate download needed.
 
 ---
 
-## Build — GitHub Actions
+## Build
 
-Push to `main` → Actions builds the IPA automatically on a `macos-15` runner.
+Push to `main` → GitHub Actions builds the IPA on `macos-15` automatically.
 
 ```bash
 git tag v1.0.0
 git push --tags
 ```
 
-IPA attaches to the GitHub Release automatically.
-
 ---
 
-## Sideload via TrollStore
+## Install
 
-1. Download the IPA from the Actions artifacts or Releases
-2. Open TrollStore on your device
-3. Tap the IPA → Install
-4. Open GalacticJailbreak from your home screen
-5. Pick your package manager → tap BEGIN
+1. Download IPA from Actions artifacts or Releases
+2. Open TrollStore → tap IPA → Install
+3. Open GalacticJailbreak
+4. Pick your package manager → tap BEGIN
 
 ---
 
@@ -142,69 +173,23 @@ IPA attaches to the GitHub Release automatically.
 
 ```
 GalacticJailbreak/
-├── .github/workflows/build.yml         # Actions pipeline (macos-15)
-├── Assets.xcassets/AppIcon.appiconset/ # Galactic star icon
-├── Entitlements.plist                  # Required — must install via TrollStore
+├── .github/workflows/build.yml
+├── Assets.xcassets/AppIcon.appiconset/
+├── Entitlements.plist
 ├── Sources/
-│   ├── App/
-│   │   └── GalacticJailbreakApp.swift
+│   ├── App/GalacticJailbreakApp.swift
 │   ├── Engine/
-│   │   ├── DeviceInfo.swift            # Hardware detection + chip routing
-│   │   ├── EntitlementChecker.swift    # Runtime signer + entitlement detection
-│   │   ├── JailbreakEngine.swift       # 6-stage jailbreak pipeline
-│   │   └── PackageManager.swift        # PM model + bundled deb URLs
+│   │   ├── DeviceInfo.swift
+│   │   ├── EntitlementChecker.swift
+│   │   ├── JailbreakEngine.swift
+│   │   └── PackageManager.swift
 │   └── Views/
 │       ├── Components/GlowButton.swift
-│       ├── ContentView.swift           # Phase router + unsupported screen
-│       ├── GalacticBackgroundView.swift # Animated starfield + nebulae
-│       ├── JailbreakView.swift         # Progress ring + log console
-│       └── PackageManagerView.swift    # Selector cards
+│       ├── ContentView.swift
+│       ├── GalacticBackgroundView.swift
+│       ├── JailbreakView.swift
+│       └── PackageManagerView.swift
 ├── ExportOptions.plist
 ├── Info.plist
 └── project.yml
 ```
-
----
-
-## Credits
-
-- Exploit engine: [opa334/Dopamine](https://github.com/opa334/Dopamine)
-- TrollStore: [opa334/TrollStore](https://github.com/opa334/TrollStore)
-- UI: Built with SwiftUI
-- CI/CD: GitHub Actions (macos-15 runner)
-
----
-
-## EntitlementChecker
-
-`EntitlementChecker.swift` runs automatically at the start of every jailbreak
-attempt and prints a full report to the log console before Stage 1 begins.
-
-**What it checks:**
-
-| Check | How | What it means |
-|-------|-----|---------------|
-| Signer type | Attempts `task_for_pid` on PID 1 (launchd) | TrollStore/ldid = succeeds, free signers = fails |
-| `platform-application` | Same `task_for_pid` check | Required for exploit to execute |
-| Sandbox disabled | Tries writing outside sandbox boundary to `/var/testGalactic` | Required for `/var/jb/` writes |
-
-**What you see in the log console:**
-
-If installed via TrollStore:
-```
-Signer: TrollStore
-platform-application entitlement active ✓
-Sandbox disabled ✓
-```
-
-If installed via Sideloadly / KSign / AltStore:
-```
-Signer: Sideloadly / AltStore
-⚠ platform-application missing — install via TrollStore
-⚠ Sandbox active — /var/jb writes will fail
-```
-
-The jailbreak continues regardless — but the warnings tell the user exactly
-why Stage 3 will fail before it does. No silent failures.
-
-**File location:** `Sources/Engine/EntitlementChecker.swift`
