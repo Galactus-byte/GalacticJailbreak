@@ -424,9 +424,9 @@ final class JailbreakEngine: ObservableObject {
         }
         var stat: Int32 = 0
         waitpid(pid, &stat, 0)
-        let exit = WEXITSTATUS(stat)
-        guard exit == 0 else {
-            throw JBError.stageFailed("\(URL(fileURLWithPath: path).lastPathComponent) exited \(exit)")
+        let exitCode = (stat >> 8) & 0xff
+        guard exitCode == 0 else {
+        throw JBError.stageFailed("\(URL(fileURLWithPath: path).lastPathComponent) exited \(exitCode)")
         }
     }
 
