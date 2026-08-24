@@ -6,20 +6,23 @@ struct ContentView: View {
 
     @State private var selectedPM: PackageManager? = nil
     @State private var phase: Phase = .selection
+    @State private var dopamineUpdateVersion: String? = nil
+    @StateObject private var engine = JailbreakEngine()
 
-    private var isSupported: Bool {
-        DeviceInfo.jailbreakMethod.isSupported
-    }
+    private var isSupported: Bool { DeviceInfo.jailbreakMethod.isSupported }
 
     var body: some View {
         ZStack {
-            GalacticBackgroundView()
-                .ignoresSafeArea()
+            GalacticBackgroundView().ignoresSafeArea()
 
             ScrollView(showsIndicators: false) {
-                VStack(spacing: 28) {
-                    header
-                        .padding(.top, 52)
+                VStack(spacing: 24) {
+                    header.padding(.top, 52)
+
+                    // Dopamine update banner
+                    if let newVersion = dopamineUpdateVersion {
+                        updateBanner(version: newVersion)
+                    }
 
                     if !isSupported {
                         unsupportedView
@@ -34,14 +37,11 @@ struct ContentView: View {
                             removal:   .move(edge: .leading).combined(with: .opacity)
                         ))
                     } else {
-                        JailbreakView(
-                            packageManager: selectedPM ?? .sileo,
-                            appPhase: $phase
-                        )
-                        .transition(.asymmetric(
-                            insertion: .move(edge: .trailing).combined(with: .opacity),
-                            removal:   .move(edge: .trailing).combined(with: .opacity)
-                        ))
+                        JailbreakView(packageManager: selectedPM ?? .sileo, appPhase: $phase)
+                            .transition(.asymmetric(
+                                insertion: .move(edge: .trailing).combined(with: .opacity),
+                                removal:   .move(edge: .trailing).combined(with: .opacity)
+                            ))
                     }
 
                     Spacer(minLength: 40)
@@ -50,6 +50,40 @@ struct ContentView: View {
             }
         }
         .preferredColorScheme(.dark)
+        .task {
+            dopamineUpdateVersion = await engine.checkForDopamineUpdate()
+        }
+    }
+
+    // MARK: - Update Banner
+
+    private func updateBanner(version: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "arrow.up.circle.fill")
+                .font(.system(size: 14))
+                .foregroundColor(.cyan)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Dopamine \(version) available")
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .foregroundColor(.cyan)
+                Text("App will use latest version automatically")
+                    .font(.system(size: 10))
+                    .foregroundColor(.cyan.opacity(0.6))
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.cyan.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .strokeBorder(Color.cyan.opacity(0.3), lineWidth: 1)
+                )
+        )
     }
 
     // MARK: - Unsupported View
@@ -77,11 +111,10 @@ struct ContentView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            // Device info card
             VStack(spacing: 8) {
                 infoRow(label: "Device", value: DeviceInfo.friendlyName)
-                infoRow(label: "iOS", value: DeviceInfo.iOSVersion)
-                infoRow(label: "Chip", value: DeviceInfo.chip.display)
+                infoRow(label: "iOS",    value: DeviceInfo.iOSVersion)
+                infoRow(label: "Chip",   value: DeviceInfo.chip.display)
                 infoRow(label: "Status", value: "Unsupported")
             }
             .padding(16)
@@ -94,14 +127,12 @@ struct ContentView: View {
                     )
             )
 
-            // Supported devices info
             VStack(spacing: 6) {
                 Text("SUPPORTED DEVICES")
                     .font(.system(size: 9, weight: .black, design: .monospaced))
                     .kerning(3)
                     .foregroundColor(.white.opacity(0.3))
-
-                Text("iPhone XS / XR / 11 / 12 / 13 / 14 Pro\niOS 15.0 – 16.7.x only")
+                Text("A8–A13: iOS 15–18.7.1\nA12–A13: iOS 26.0–26.0.1\nA14–M2: iOS 15–17.3.1")
                     .font(.system(size: 12))
                     .foregroundColor(.white.opacity(0.4))
                     .multilineTextAlignment(.center)
@@ -161,7 +192,7 @@ struct ContentView: View {
 
             if isSupported {
                 HStack(spacing: 6) {
-                    stepDot(active: phase == .selection, done: phase == .jailbreaking, label: "1")
+                    stepDot(active: phase == .selection,    done: phase == .jailbreaking, label: "1")
                     Rectangle()
                         .fill(phase == .jailbreaking ? Color.cyan.opacity(0.6) : Color.white.opacity(0.12))
                         .frame(width: 28, height: 1)
@@ -176,7 +207,7 @@ struct ContentView: View {
         HStack(spacing: 5) {
             Image(systemName: "iphone")
                 .font(.system(size: 10))
-            Text("\(DeviceInfo.modelIdentifier)  ·  iOS \(DeviceInfo.iOSVersion)  ·  \(DeviceInfo.chip.display)")
+            Text("\(DeviceInfo.friendlyName)  ·  iOS \(DeviceInfo.iOSVersion)  ·  \(DeviceInfo.chip.display)")
                 .font(.system(size: 10, design: .monospaced))
         }
         .foregroundColor(.white.opacity(0.38))

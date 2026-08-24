@@ -15,6 +15,7 @@ final class JailbreakEngine: ObservableObject {
     // MARK: - URLs
 
     private let dopamineIPAURL = URL(string: "https://github.com/opa334/Dopamine/releases/latest/download/Dopamine.ipa")!
+    private let knownGoodVersion = "3.0.9"
 
     // MARK: - Paths
 
@@ -40,6 +41,16 @@ final class JailbreakEngine: ObservableObject {
         unloadFrameworks()
     }
 
+    // MARK: - Dopamine Update Check
+
+    func checkForDopamineUpdate() async -> String? {
+        guard let url = URL(string: "https://api.github.com/repos/opa334/Dopamine/releases/latest") else { return nil }
+        guard let (data, _) = try? await URLSession.shared.data(from: url) else { return nil }
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let tag = json["tag_name"] as? String else { return nil }
+        return tag != knownGoodVersion ? tag : nil
+    }
+
     // MARK: - Router
 
     private func execute(pm: PackageManager) async {
@@ -47,8 +58,9 @@ final class JailbreakEngine: ObservableObject {
         guard method.isSupported else {
             status = .failed("Device or iOS version not supported.")
             emit("Unsupported: \(DeviceInfo.friendlyName) / iOS \(DeviceInfo.iOSVersion)", .error)
-            emit("Dopamine supports A12–A15 on iOS 15.0–16.7.x", .warning)
-            emit("Dopamine 2 supports A16 on iOS 16.0–16.7.x", .warning)
+            emit("Dopamine 3 supports A8–A13 on iOS 15–18.7.1", .warning)
+            emit("Dopamine 3 supports A12–A13 on iOS 26.0–26.0.1", .warning)
+            emit("Dopamine 3 supports A14–M2 on iOS 15–17.3.1", .warning)
             return
         }
         await runDopamine(method: method, pm: pm)
@@ -60,33 +72,45 @@ final class JailbreakEngine: ObservableObject {
         emit("[\(method.rawValue)] starting — \(method.exploitLabel)", .info)
         emit("Target: \(DeviceInfo.friendlyName) · iOS \(DeviceInfo.iOSVersion) · \(DeviceInfo.chip.display)", .info)
 
-        // Stage 1 — Download Dopamine IPA and extract everything
-        await stage(.preparing, target: 0.15, label: "Downloading Dopamine") { [self] in
+        // Stage 1 — Entitlement check + download IPA
+        await stage(.preparing, target: 0.15, label: "Checking entitlements and downloading Dopamine 3") { [self] in
+            let signer = EntitlementChecker.detectedSigner
+            self.emit("Signer: \(signer.rawValue)", .info)
+            if !EntitlementChecker.hasPlatformApplication {
+                self.emit("⚠ platform-application missing — install via TrollStore", .warning)
+            } else {
+                self.emit("platform-application active ✓", .success)
+            }
+            if !EntitlementChecker.isSandboxDisabled {
+                self.emit("⚠ Sandbox active — /var/jb writes may fail", .warning)
+            } else {
+                self.emit("Sandbox disabled ✓", .success)
+            }
             try await self.downloadAndExtractIPA()
         }
 
-        // Stage 2 — Load exploit frameworks from /var/jb/Frameworks
+        // Stage 2 — Load exploit frameworks
         await stage(.preparing, target: 0.22, label: "Loading exploit frameworks") { [self] in
             try self.loadFrameworks(method: method)
         }
 
-        // Stage 3 — Real exploit via libjailbreak + libxpf dylibs
+        // Stage 3 — Exploit via libjailbreak + libxpf
         await stage(.exploiting, target: 0.45, label: "Triggering \(method.exploitLabel)") { [self] in
             try self.runExploit(method: method)
         }
 
-        // Stage 4 — Extract and install bootstrap (bundled in IPA)
+        // Stage 4 — Bootstrap
         await stage(.bootstrapping, target: 0.65, label: "Installing bootstrap → /var/jb") { [self] in
             try self.installBootstrap()
         }
 
-        // Stage 5 — Install package manager (bundled debs in IPA)
+        // Stage 5 — Install package manager
         status = .installing(pm)
         await stage(.installing(pm), target: 0.85, label: "Installing \(pm.rawValue)") { [self] in
             try self.installPackageManager(pm)
         }
 
-        // Stage 6 — Finalize via sbreload + uicache
+        // Stage 6 — Finalize
         await stage(.finalizing, target: 0.97, label: "Activating jailbreak environment") { [self] in
             try self.finalizeEnvironment()
         }
@@ -99,26 +123,20 @@ final class JailbreakEngine: ObservableObject {
     // MARK: - Stage 1: Download + Extract IPA
 
     private func downloadAndExtractIPA() async throws {
-        // Skip if already extracted
         if FileManager.default.fileExists(atPath: extractedApp) {
             emit("IPA already extracted — skipping download", .info)
             return
         }
-
         try makeDir(tmpDir)
         let ipaPath = "\(tmpDir)/Dopamine.ipa"
-
-        emit("Downloading Dopamine IPA from GitHub releases...", .info)
+        emit("Downloading Dopamine 3 IPA from GitHub releases...", .info)
         try await downloadFile(from: dopamineIPAURL, to: ipaPath)
         emit("Download complete", .success)
-
         let extractPath = "\(tmpDir)/extracted"
         try makeDir(extractPath)
-        emit("Extracting IPA contents...", .info)
+        emit("Extracting IPA...", .info)
         try spawnAndWait("/usr/bin/unzip", args: ["-o", ipaPath, "-d", extractPath])
         emit("IPA extracted", .success)
-
-        // Copy frameworks to /var/jb/Frameworks
         try makeDir(frameworksDir)
         let srcFrameworks = "\(extractedApp)/Frameworks"
         let frameworkNames = [
@@ -132,35 +150,42 @@ final class JailbreakEngine: ObservableObject {
             if FileManager.default.fileExists(atPath: src) {
                 try? FileManager.default.removeItem(atPath: dst)
                 try FileManager.default.copyItem(atPath: src, toPath: dst)
-                emit("\(name) → /var/jb/Frameworks/", .info)
+                emit("\(name) staged", .info)
             }
         }
-
-        // Copy key dylibs to /var/jb/usr/lib
         try makeDir(dylibsDir)
-        let dylibs = ["libjailbreak.dylib", "libxpf.dylib", "libchoma.dylib"]
-        for dylib in dylibs {
+        for dylib in ["libjailbreak.dylib", "libxpf.dylib", "libchoma.dylib"] {
             let src = "\(extractedApp)/\(dylib)"
             let dst = "\(dylibsDir)/\(dylib)"
             if FileManager.default.fileExists(atPath: src) {
                 try? FileManager.default.removeItem(atPath: dst)
                 try FileManager.default.copyItem(atPath: src, toPath: dst)
-                emit("\(dylib) → /var/jb/usr/lib/", .info)
+                emit("\(dylib) staged", .info)
             }
         }
-
-        emit("All components staged", .success)
+        emit("All components staged at /var/jb", .success)
     }
 
     // MARK: - Stage 2: Load Frameworks
 
     private func loadFrameworks(method: DeviceInfo.JBMethod) throws {
         switch method {
-        case .dopamine:  try loadFramework("weightBufs")
-        case .dopamine2: try loadFramework("kfd")
-        case .unsupported: throw JBError.stageFailed("Unsupported device")
+        case .dopamine3:
+            let v = DeviceInfo.versionTuple
+            // A12/A13 on iOS 26 use momentarius, others use weightBufs or kfd
+            let chip = DeviceInfo.chip
+            if chip == .a12 || chip == .a13 {
+                try? loadFramework("momentarius")
+            }
+            if v.major >= 17 {
+                try loadFramework("kfd")
+            } else {
+                try loadFramework("weightBufs")
+            }
+        case .unsupported:
+            throw JBError.stageFailed("Unsupported device")
         }
-        for name in ["ClearSword", "Titan", "momentarius", "multicast_bytecopy"] {
+        for name in ["ClearSword", "Titan", "badRecovery", "dmaFail", "multicast_bytecopy"] {
             try? loadFramework(name)
         }
         emit("Exploit frameworks loaded", .success)
@@ -180,10 +205,9 @@ final class JailbreakEngine: ObservableObject {
         frameworkHandles.removeAll()
     }
 
-    // MARK: - Stage 3: Real Exploit via libjailbreak + libxpf
+    // MARK: - Stage 3: Exploit
 
     private func runExploit(method: DeviceInfo.JBMethod) throws {
-        // Load libxpf — kernel path finder
         let xpfPath = "\(dylibsDir)/libxpf.dylib"
         guard let xpfHandle = dlopen(xpfPath, RTLD_NOW | RTLD_GLOBAL) else {
             throw JBError.stageFailed("libxpf load failed: \(String(cString: dlerror()))")
@@ -191,7 +215,6 @@ final class JailbreakEngine: ObservableObject {
         frameworkHandles.append(xpfHandle)
         emit("libxpf.dylib loaded", .success)
 
-        // Load libjailbreak — privilege escalation + TrustCache
         let jbPath = "\(dylibsDir)/libjailbreak.dylib"
         guard let jbHandle = dlopen(jbPath, RTLD_NOW | RTLD_GLOBAL) else {
             throw JBError.stageFailed("libjailbreak load failed: \(String(cString: dlerror()))")
@@ -199,35 +222,24 @@ final class JailbreakEngine: ObservableObject {
         frameworkHandles.append(jbHandle)
         emit("libjailbreak.dylib loaded", .success)
 
-        // Load libchoma — code signing bypass
-        let chomaPath = "\(dylibsDir)/libchoma.dylib"
-        if let chomaHandle = dlopen(chomaPath, RTLD_NOW | RTLD_GLOBAL) {
+        if let chomaHandle = dlopen("\(dylibsDir)/libchoma.dylib", RTLD_NOW | RTLD_GLOBAL) {
             frameworkHandles.append(chomaHandle)
             emit("libchoma.dylib loaded", .success)
         }
 
-        // Resolve exploit entry point via dlsym
-        // libjailbreak exports jbinit as its main entry function
         if let jbinit = dlsym(jbHandle, "jbinit") {
             emit("jbinit resolved — triggering exploit...", .info)
             typealias JBInitFn = @convention(c) () -> Int32
-            let fn = unsafeBitCast(jbinit, to: JBInitFn.self)
-            let result = fn()
-            if result != 0 {
-                throw JBError.stageFailed("jbinit returned \(result)")
-            }
-            emit("Kernel read/write primitive established", .success)
+            let result = unsafeBitCast(jbinit, to: JBInitFn.self)()
+            if result != 0 { throw JBError.stageFailed("jbinit returned \(result)") }
+            emit("Kernel r/w primitive established", .success)
         } else if let exploitMain = dlsym(jbHandle, "exploit_main") {
             emit("exploit_main resolved — triggering...", .info)
             typealias ExploitFn = @convention(c) () -> Int32
-            let fn = unsafeBitCast(exploitMain, to: ExploitFn.self)
-            let result = fn()
-            if result != 0 {
-                throw JBError.stageFailed("exploit_main returned \(result)")
-            }
-            emit("Kernel read/write primitive established", .success)
+            let result = unsafeBitCast(exploitMain, to: ExploitFn.self)()
+            if result != 0 { throw JBError.stageFailed("exploit_main returned \(result)") }
+            emit("Kernel r/w primitive established", .success)
         } else {
-            // Frameworks are stripped — fall back to Objective-C runtime
             emit("Symbols stripped — using ObjC runtime bridge...", .warning)
             try runExploitViaObjCRuntime()
         }
@@ -238,69 +250,36 @@ final class JailbreakEngine: ObservableObject {
     }
 
     private func runExploitViaObjCRuntime() throws {
-        // DOJailbreaker is loaded into the ObjC runtime from the frameworks
-        // Use NSClassFromString to invoke it without a bridging header
         guard let jailbreakerClass = NSClassFromString("DOJailbreaker") as? NSObject.Type else {
-            throw JBError.stageFailed("DOJailbreaker class not found in runtime")
+            throw JBError.stageFailed("DOJailbreaker not found in runtime")
         }
-
         let jailbreaker = jailbreakerClass.init()
         let sel = NSSelectorFromString("runWithError:didRemoveJailbreak:showLogs:")
-
         guard jailbreaker.responds(to: sel) else {
             throw JBError.stageFailed("DOJailbreaker does not respond to runWithError:didRemoveJailbreak:showLogs:")
         }
-
-        // Use NSInvocation via performSelector for methods with multiple args
         var errOut: NSError? = nil
-        var didRemove: ObjCBool = false
-        var showLogs: ObjCBool = true
-
         withUnsafeMutablePointer(to: &errOut) { errPtr in
-            withUnsafeMutablePointer(to: &didRemove) { removePtr in
-                withUnsafeMutablePointer(to: &showLogs) { logsPtr in
-                    _ = jailbreaker.perform(sel,
-                        with: errPtr,
-                        with: removePtr
-                    )
-                }
-            }
+            _ = jailbreaker.perform(sel, with: errPtr)
         }
-
-        if let error = errOut {
-            throw error
-        }
-
+        if let error = errOut { throw error }
         emit("DOJailbreaker.runWithError completed", .success)
     }
 
-    // MARK: - Stage 4: Install Bootstrap (bundled in IPA)
+    // MARK: - Stage 4: Bootstrap
 
     private func installBootstrap() throws {
-        // Pick the right bootstrap based on iOS version
         let v = DeviceInfo.versionTuple
-        let bootstrapFile: String
-        if v.major >= 16 {
-            bootstrapFile = "bootstrap_1900.tar.zst"
-        } else {
-            bootstrapFile = "bootstrap_1800.tar.zst"
-        }
-
+        let bootstrapFile = v.major >= 16 ? "bootstrap_1900.tar.zst" : "bootstrap_1800.tar.zst"
         let bootstrapSrc = "\(extractedApp)/\(bootstrapFile)"
         guard FileManager.default.fileExists(atPath: bootstrapSrc) else {
-            throw JBError.stageFailed("Bootstrap not found in extracted IPA: \(bootstrapFile)")
+            throw JBError.stageFailed("Bootstrap not found: \(bootstrapFile)")
         }
-
         emit("Installing \(bootstrapFile)...", .info)
         try makeDir(jbRoot)
-
-        // Copy to tmp for extraction
         let bootstrapTmp = "\(tmpDir)/\(bootstrapFile)"
         try? FileManager.default.removeItem(atPath: bootstrapTmp)
         try FileManager.default.copyItem(atPath: bootstrapSrc, toPath: bootstrapTmp)
-
-        // Decompress with zstd (from bootstrap itself after first extraction)
-        // Use the bundled basebin.tar first to get basic tools
         let basebinSrc = "\(extractedApp)/basebin.tar"
         if FileManager.default.fileExists(atPath: basebinSrc) {
             let basebinTmp = "\(tmpDir)/basebin.tar"
@@ -308,93 +287,64 @@ final class JailbreakEngine: ObservableObject {
             try spawnAndWait("/usr/bin/tar", args: ["-xf", basebinTmp, "-C", jbRoot])
             emit("Basebin extracted", .success)
         }
-
-        // Now decompress bootstrap with zstd from basebin
         let zstd = "\(jbRoot)/usr/bin/zstd"
         let tarPath = "\(tmpDir)/bootstrap.tar"
         try spawnAndWait(zstd, args: ["-d", bootstrapTmp, "-o", tarPath, "--force"])
         try spawnAndWait("/usr/bin/tar", args: ["-xf", tarPath, "-C", jbRoot])
-
         emit("Bootstrap extracted to \(jbRoot)", .success)
-
-        // Install bundled debs
-        let bundledDebs = [
-            "\(extractedApp)/libkrw-dopamine.deb",
-            "\(extractedApp)/libroot.deb",
-            "\(extractedApp)/basebin-link.deb",
-        ]
-        for deb in bundledDebs {
+        for deb in ["\(extractedApp)/libkrw-dopamine.deb",
+                    "\(extractedApp)/libroot.deb",
+                    "\(extractedApp)/basebin-link.deb"] {
             if FileManager.default.fileExists(atPath: deb) {
                 try? spawnAndWait(dpkg, args: ["-i", deb])
                 emit("\(URL(fileURLWithPath: deb).lastPathComponent) installed", .info)
             }
         }
-
         emit("Bootstrap ready", .success)
-        emit("dyld injection layer configured", .success)
     }
 
-    // MARK: - Stage 5: Install Package Manager (bundled debs)
+    // MARK: - Stage 5: Package Manager
 
     private func installPackageManager(_ pm: PackageManager) throws {
-        // Check for bundled deb first (already inside extracted IPA)
-        let bundledDebNames: [PackageManager: String] = [
-            .sileo: "sileo.deb",
-            .zebra: "zebra.deb",
-        ]
-
-        let debPath: String
-
-        if let bundledName = bundledDebNames[pm],
-           FileManager.default.fileExists(atPath: "\(extractedApp)/\(bundledName)") {
-            debPath = "\(extractedApp)/\(bundledName)"
-            emit("\(pm.rawValue).deb found in bundle — using bundled version", .info)
-        } else {
-            // Cydia and Installer 5 need download
-            throw JBError.stageFailed("\(pm.rawValue) is not bundled — download not implemented yet")
+        let bundled: [PackageManager: String] = [.sileo: "sileo.deb", .zebra: "zebra.deb"]
+        guard let debName = bundled[pm],
+              FileManager.default.fileExists(atPath: "\(extractedApp)/\(debName)") else {
+            throw JBError.stageFailed("\(pm.rawValue) not bundled in this Dopamine release")
         }
-
         guard FileManager.default.fileExists(atPath: dpkg) else {
             throw JBError.stageFailed("dpkg not found — bootstrap must complete first")
         }
-
+        let debPath = "\(extractedApp)/\(debName)"
         emit("Installing \(pm.rawValue) via dpkg...", .info)
         try spawnAndWait(dpkg, args: ["-i", debPath])
-        emit("\(pm.rawValue) installed → \(jbRoot)/Applications/\(pm.rawValue).app", .success)
+        emit("\(pm.rawValue) installed → \(jbRoot)/Applications/", .success)
     }
 
     // MARK: - Stage 6: Finalize
 
     private func finalizeEnvironment() throws {
-        // uicache — registers new apps with SpringBoard
         let uicache = "\(jbRoot)/usr/bin/uicache"
         if FileManager.default.fileExists(atPath: uicache) {
             try? spawnAndWait(uicache, args: ["-a"])
             emit("App cache updated", .success)
         }
-
-        // sbreload — restarts SpringBoard to activate tweaks
         let sbreload = "\(jbRoot)/usr/bin/sbreload"
         if FileManager.default.fileExists(atPath: sbreload) {
             emit("Reloading SpringBoard...", .info)
             try spawnAndWait(sbreload, args: [])
             emit("SpringBoard reloaded — jailbreak active", .success)
         } else {
-            // Fallback: launchctl reboot userspace
             emit("sbreload not found — rebooting userspace...", .warning)
             try? spawnAndWait("/bin/launchctl", args: ["reboot", "userspace"])
         }
     }
 
-    // MARK: - Download Helper
+    // MARK: - Helpers
 
     private func downloadFile(from url: URL, to path: String) async throws {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             let task = URLSession.shared.downloadTask(with: url) { location, _, error in
-                if let error = error {
-                    cont.resume(throwing: error)
-                    return
-                }
+                if let error = error { cont.resume(throwing: error); return }
                 guard let location = location else {
                     cont.resume(throwing: JBError.stageFailed("No file returned"))
                     return
@@ -403,15 +353,11 @@ final class JailbreakEngine: ObservableObject {
                     try? FileManager.default.removeItem(atPath: path)
                     try FileManager.default.moveItem(atPath: location.path, toPath: path)
                     cont.resume()
-                } catch {
-                    cont.resume(throwing: error)
-                }
+                } catch { cont.resume(throwing: error) }
             }
             task.resume()
         }
     }
-
-    // MARK: - Process Helper
 
     private func spawnAndWait(_ path: String, args: [String]) throws {
         var pid: pid_t = 0
@@ -426,28 +372,15 @@ final class JailbreakEngine: ObservableObject {
         waitpid(pid, &stat, 0)
         let exitCode = (stat >> 8) & 0xff
         guard exitCode == 0 else {
-        throw JBError.stageFailed("\(URL(fileURLWithPath: path).lastPathComponent) exited \(exitCode)")
+            throw JBError.stageFailed("\(URL(fileURLWithPath: path).lastPathComponent) exited \(exitCode)")
         }
     }
 
-    // MARK: - Directory Helper
-
     private func makeDir(_ path: String) throws {
-        try FileManager.default.createDirectory(
-            atPath: path,
-            withIntermediateDirectories: true,
-            attributes: nil
-        )
+        try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
     }
 
-    // MARK: - Stage Runner
-
-    private func stage(
-        _ s: Status,
-        target: Double,
-        label: String,
-        work: @escaping () async throws -> Void
-    ) async {
+    private func stage(_ s: Status, target: Double, label: String, work: @escaping () async throws -> Void) async {
         guard !Task.isCancelled else { return }
         status = s
         emit(label, .info)
@@ -466,8 +399,6 @@ final class JailbreakEngine: ObservableObject {
         log.append(LogEntry(timestamp: Date(), message: message, level: level))
     }
 
-    // MARK: - Error Type
-
     enum JBError: LocalizedError {
         case stageFailed(String)
         var errorDescription: String? {
@@ -475,16 +406,9 @@ final class JailbreakEngine: ObservableObject {
         }
     }
 
-    // MARK: - Nested Types
-
     enum Status: Equatable {
-        case idle
-        case preparing
-        case exploiting
-        case bootstrapping
-        case installing(PackageManager)
-        case finalizing
-        case complete
+        case idle, preparing, exploiting, bootstrapping
+        case installing(PackageManager), finalizing, complete
         case failed(String)
 
         var label: String {
@@ -513,7 +437,6 @@ final class JailbreakEngine: ObservableObject {
         let timestamp: Date
         let message: String
         let level: Level
-
         enum Level { case info, success, warning, error }
     }
 }
