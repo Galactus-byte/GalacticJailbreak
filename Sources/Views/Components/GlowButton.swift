@@ -7,7 +7,7 @@ struct GlowButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 11, weight: .black, design: .monospaced))
-            .kerning(3.5)
+            .tracking(3.5)
             .foregroundColor(isEnabled ? .white : .white.opacity(0.25))
             .frame(maxWidth: .infinity)
             .frame(height: 54)
