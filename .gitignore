@@ -1,2 +1,8 @@
 GalacticJailbreak
 GalacticJailbreak.xcodeproj
+*.ipa
+*Extracted/
+build/
+.DS_Store
+DerivedData/
+*.xcuserstate

@@ -17,8 +17,9 @@ jobs:
       - name: Xcode version
         run: xcodebuild -version
 
-      - name: Install xcodegen
-        run: brew install xcodegen
+      - name: Install dependencies
+        run: |
+          brew install xcodegen ldid
 
       - name: Generate xcodeproj
         run: xcodegen generate
@@ -46,11 +47,12 @@ jobs:
           name: build-log
           path: build.log
 
-      - name: Package IPA
+      - name: Package & Sign IPA with Entitlements
         run: |
           mkdir -p build/ipa/Payload
           cp -r build/GalacticJailbreak.xcarchive/Products/Applications/GalacticJailbreak.app \
             build/ipa/Payload/
+          ldid -SEntitlements.plist build/ipa/Payload/GalacticJailbreak.app/GalacticJailbreak || true
           cd build/ipa
           zip -r ../GalacticJailbreak.ipa Payload/
 

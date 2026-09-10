@@ -2,55 +2,58 @@ import Foundation
 import Darwin
 
 /// Checks which entitlements are active at runtime.
-/// Private entitlements are stripped by free signers (Sideloadly, AltStore, KSign)
-/// but preserved by TrollStore, ldid, and zsign.
+/// Private entitlements are stripped by standard signers (Sideloadly, AltStore)
+/// but preserved when installed via TrollStore or signed with ldid / CoreTrust.
 struct EntitlementChecker {
 
     enum SignerType: String {
         case trollStore = "TrollStore"
-        case ldid       = "ldid / zsign"
-        case freeSigner = "Sideloadly / AltStore / KSign"
+        case ldid       = "ldid / CoreTrust"
+        case freeSigner = "Sideloadly / AltStore"
         case unknown    = "Unknown"
     }
 
-    /// Detects signer type based on available entitlements at runtime
+    /// Detects signer type based on runtime path and available entitlements
     static var detectedSigner: SignerType {
-        if hasPlatformApplication {
-            if FileManager.default.fileExists(
-                atPath: "/var/containers/Bundle/Application/.com.apple.mobile_installation.metadata.db"
-            ) {
+        let bundlePath = Bundle.main.bundlePath
+        if bundlePath.contains("/var/containers/Bundle/Application/") {
+            if hasPlatformApplication {
                 return .trollStore
             }
+            return .ldid
+        }
+        if hasPlatformApplication {
             return .ldid
         }
         return .freeSigner
     }
 
     /// Whether the app has platform-application entitlement.
-    /// Without this the kernel exploit will be rejected.
+    /// TrollStore preserves this entitlement.
     static var hasPlatformApplication: Bool {
         return checkPlatformEntitlement()
     }
 
     private static func checkPlatformEntitlement() -> Bool {
-        // Attempt task_for_pid on pid 1 (launchd)
-        // Only succeeds with platform-application entitlement
+        // Attempt task_for_pid on current process or test entitlement
         var task = mach_port_t(MACH_PORT_NULL)
-        let self_task = mach_task_self_
-        let kr = task_for_pid(self_task, 1, &task)
+        let selfTask = mach_task_self_
+        let kr = task_for_pid(selfTask, getpid(), &task)
         if kr == KERN_SUCCESS && task != mach_port_t(MACH_PORT_NULL) {
-            mach_port_deallocate(self_task, task)
+            mach_port_deallocate(selfTask, task)
             return true
         }
         return false
     }
 
-    /// Whether the sandbox is disabled.
-    /// Required for writing to /var/jb/
+    /// Whether the sandbox is disabled (com.apple.private.security.no-sandbox).
+    /// Required for writing outside the application sandbox container.
     static var isSandboxDisabled: Bool {
-        let testPath = "/var/testGalactic_\(Int.random(in: 1000...9999))"
-        let created = FileManager.default.createFile(atPath: testPath, contents: nil)
-        if created {
+        let testDir = "/var/mobile/Library/Caches"
+        let testPath = "\(testDir)/.galactic_test_\(UUID().uuidString)"
+        let testData = "sandbox_check".data(using: .utf8)
+        
+        if FileManager.default.createFile(atPath: testPath, contents: testData) {
             try? FileManager.default.removeItem(atPath: testPath)
             return true
         }
@@ -70,13 +73,13 @@ struct EntitlementChecker {
             lines.append(("platform-application entitlement active ✓", "success"))
         } else {
             lines.append(("⚠ platform-application missing — install via TrollStore", "warning"))
-            lines.append(("Exploit will fail at Stage 3 without this entitlement", "warning"))
+            lines.append(("Exploit requires TrollStore private entitlements", "warning"))
         }
 
         if sandbox {
             lines.append(("Sandbox disabled ✓", "success"))
         } else {
-            lines.append(("⚠ Sandbox active — /var/jb writes will fail", "warning"))
+            lines.append(("⚠ Sandbox active — unsandboxed writes will fail", "warning"))
         }
 
         if platform && sandbox {

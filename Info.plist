@@ -25,9 +25,5 @@
     <array>
         <string>UIInterfaceOrientationPortrait</string>
     </array>
-
-    <!-- Required for process introspection used by DeviceInfo -->
-    <key>NSAppleMusicUsageDescription</key>
-    <string>Not used.</string>
 </dict>
 </plist>

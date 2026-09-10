@@ -3,10 +3,10 @@ import Darwin
 
 struct JailbreakView: View {
 
+    @ObservedObject var engine: JailbreakEngine
     let packageManager: PackageManager
     @Binding var appPhase: ContentView.Phase
 
-    @StateObject private var engine = JailbreakEngine()
     @State private var started = false
 
     var body: some View {
@@ -33,29 +33,71 @@ struct JailbreakView: View {
 
     @ViewBuilder
     private var controls: some View {
-        switch engine.status {
-        case .complete:
-            GlowButton(title: "RESPRING SPRINGBOARD", isEnabled: true, color: .green) {
-                respring()
-            }
+        VStack(spacing: 12) {
+            switch engine.status {
+            case .complete:
+                GlowButton(title: "RESPRING SPRINGBOARD", isEnabled: true, color: .green) {
+                    respring()
+                }
 
-        case .failed:
-            GlowButton(title: "RETRY", isEnabled: true, color: .red) {
-                engine.cancel()
-                started = false
-                begin()
-            }
+                Button(action: {
+                    engine.cancel()
+                    started = false
+                    withAnimation(.spring(response: 0.4)) {
+                        appPhase = .selection
+                    }
+                }) {
+                    Text("DONE")
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.5))
+                }
+                .padding(.top, 4)
 
-        default:
-            if !started {
-                GlowButton(title: "BEGIN", isEnabled: true, color: .cyan) { begin() }
-            } else {
-                HStack(spacing: 8) {
-                    ProgressView().tint(.cyan).scaleEffect(0.75)
-                    Text("RUNNING — KEEP SCREEN ON")
-                        .font(.system(size: 9, weight: .black, design: .monospaced))
-                        .kerning(2)
-                        .foregroundColor(.cyan.opacity(0.6))
+            case .failed:
+                GlowButton(title: "RETRY", isEnabled: true, color: .red) {
+                    engine.cancel()
+                    started = false
+                    begin()
+                }
+
+                Button(action: {
+                    engine.cancel()
+                    started = false
+                    withAnimation(.spring(response: 0.4)) {
+                        appPhase = .selection
+                    }
+                }) {
+                    Text("BACK TO SELECTION")
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.5))
+                }
+                .padding(.top, 4)
+
+            default:
+                if !started {
+                    GlowButton(title: "BEGIN JAILBREAK", isEnabled: true, color: .cyan) {
+                        begin()
+                    }
+
+                    Button(action: {
+                        withAnimation(.spring(response: 0.4)) {
+                            appPhase = .selection
+                        }
+                    }) {
+                        Text("← CHANGE PACKAGE MANAGER")
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.5))
+                    }
+                    .padding(.top, 4)
+                } else {
+                    HStack(spacing: 8) {
+                        ProgressView().tint(.cyan).scaleEffect(0.75)
+                        Text("RUNNING — KEEP SCREEN ON")
+                            .font(.system(size: 9, weight: .black, design: .monospaced))
+                            .kerning(2)
+                            .foregroundColor(.cyan.opacity(0.6))
+                    }
+                    .frame(height: 54)
                 }
             }
         }
@@ -66,17 +108,19 @@ struct JailbreakView: View {
         engine.run(packageManager: packageManager)
     }
 
-    // Process() is macOS-only. On iOS jailbroken devices use posix_spawn
-    // to call sbreload from the rootless bootstrap at /var/jb.
+    // On iOS jailbroken rootless devices, use posix_spawn to execute sbreload from /var/jb
     private func respring() {
         let path = "/var/jb/usr/bin/sbreload"
+        guard FileManager.default.fileExists(atPath: path) else { return }
         var pid: pid_t = 0
-        let args: [UnsafeMutablePointer<CChar>?] = [
+        var cArgs: [UnsafeMutablePointer<CChar>?] = [
             strdup(path),
             nil
         ]
-        posix_spawn(&pid, path, nil, nil, args, nil)
-        args.forEach { free($0) }
+        _ = cArgs.withUnsafeMutableBufferPointer { buffer in
+            posix_spawn(&pid, path, nil, nil, buffer.baseAddress, nil)
+        }
+        cArgs.compactMap { $0 }.forEach { free($0) }
     }
 }
 

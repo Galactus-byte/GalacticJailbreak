@@ -9,7 +9,7 @@ struct PackageManagerView: View {
         VStack(spacing: 22) {
             sectionHeader
 
-            VStack(spacing: 10) {
+            VStack(spacing: 12) {
                 ForEach(PackageManager.allCases) { pm in
                     PMCard(pm: pm, isSelected: selected == pm) {
                         withAnimation(.spring(response: 0.28, dampingFraction: 0.72)) {
@@ -20,12 +20,12 @@ struct PackageManagerView: View {
             }
 
             GlowButton(
-                title: "INITIALIZE JAILBREAK",
+                title: "CONTINUE",
                 isEnabled: selected != nil,
                 color: .cyan,
                 action: onConfirm
             )
-            .padding(.top, 4)
+            .padding(.top, 6)
         }
     }
 
@@ -36,7 +36,7 @@ struct PackageManagerView: View {
                 .kerning(5)
                 .foregroundColor(.cyan.opacity(0.7))
 
-            Text("Installed before the jailbreak activates")
+            Text("Select your primary rootless package manager")
                 .font(.system(size: 12))
                 .foregroundColor(.white.opacity(0.35))
         }

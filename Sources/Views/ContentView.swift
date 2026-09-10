@@ -37,7 +37,7 @@ struct ContentView: View {
                             removal:   .move(edge: .leading).combined(with: .opacity)
                         ))
                     } else {
-                        JailbreakView(packageManager: selectedPM ?? .sileo, appPhase: $phase)
+                        JailbreakView(engine: engine, packageManager: selectedPM ?? .sileo, appPhase: $phase)
                             .transition(.asymmetric(
                                 insertion: .move(edge: .trailing).combined(with: .opacity),
                                 removal:   .move(edge: .trailing).combined(with: .opacity)
@@ -104,7 +104,7 @@ struct ContentView: View {
                     .font(.system(size: 22, weight: .bold))
                     .foregroundColor(.white)
 
-                Text("Your device is not supported. Dopamine requires iOS 15.0–16.7.x on A12–A16 chips.")
+                Text("Dopamine requires arm64e hardware (A12–A16 / M1–M2) running iOS 15.0 through 16.6.1.")
                     .font(.system(size: 14))
                     .foregroundColor(.white.opacity(0.6))
                     .multilineTextAlignment(.center)
@@ -128,11 +128,11 @@ struct ContentView: View {
             )
 
             VStack(spacing: 6) {
-                Text("SUPPORTED DEVICES")
+                Text("SUPPORTED CONFIGURATIONS")
                     .font(.system(size: 9, weight: .black, design: .monospaced))
                     .kerning(3)
                     .foregroundColor(.white.opacity(0.3))
-                Text("A8–A13: iOS 15–18.7.1\nA12–A13: iOS 26.0–26.0.1\nA14–M2: iOS 15–17.3.1")
+                Text("A12 – A16: iOS 15.0 – 16.6.1\nM1 – M2: iPadOS 15.0 – 16.6.1\nMust be installed via TrollStore")
                     .font(.system(size: 12))
                     .foregroundColor(.white.opacity(0.4))
                     .multilineTextAlignment(.center)
@@ -192,7 +192,7 @@ struct ContentView: View {
 
             if isSupported {
                 HStack(spacing: 6) {
-                    stepDot(active: phase == .selection,    done: phase == .jailbreaking, label: "1")
+                    stepDot(active: phase == .selection, done: phase == .jailbreaking, label: "1")
                     Rectangle()
                         .fill(phase == .jailbreaking ? Color.cyan.opacity(0.6) : Color.white.opacity(0.12))
                         .frame(width: 28, height: 1)
