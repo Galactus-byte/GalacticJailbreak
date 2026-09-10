@@ -7,7 +7,6 @@ struct GlowButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 11, weight: .black, design: .monospaced))
-            .kerning(3.5)
             .foregroundColor(isEnabled ? .white : .white.opacity(0.25))
             .frame(maxWidth: .infinity)
             .frame(height: 54)
@@ -55,7 +54,11 @@ struct GlowButton: View {
 
     var body: some View {
         Button(action: action) {
+            // Text-level .tracking (iOS 13+) instead of the iOS 16+ View
+            // modifier: keeps the wide spacing on iOS 15, where kerning is
+            // dropped from Button labels.
             Text(title)
+                .tracking(3.5)
         }
         .buttonStyle(GlowButtonStyle(isEnabled: isEnabled, color: color))
         .disabled(!isEnabled)
