@@ -54,11 +54,13 @@ struct GlowButton: View {
 
     var body: some View {
         Button(action: action) {
-            // Text-level .tracking (iOS 13+) instead of the iOS 16+ View
-            // modifier: keeps the wide spacing on iOS 15, where kerning is
-            // dropped from Button labels.
+            // Applied to `Text` on purpose: this resolves to `Text.kerning`
+            // (iOS 13+). Putting `.kerning(3.5)` on `configuration.label` in
+            // `GlowButtonStyle` resolves to the *View* modifier, which is
+            // iOS 16+ only and fails to compile against our iOS 15 deployment
+            // target.
             Text(title)
-                .tracking(3.5)
+                .kerning(3.5)
         }
         .buttonStyle(GlowButtonStyle(isEnabled: isEnabled, color: color))
         .disabled(!isEnabled)
